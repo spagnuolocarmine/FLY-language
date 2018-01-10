@@ -74,10 +74,10 @@ WIND is designed as a scripting language that use as run-time environment, the l
     var result3=async parallel execute myOpt for data on aws then func
     print result3
   
-WIND Optimization via Simulation process  
+### WIND Optimization via Simulation process  
 
-An optimization via Simulation process consists of a optimizer that uses a simulation to evaluate the results, or the simulation input is generated using an optimizer. Following example a simulation is used to evaluate the population of each epoch of a genetic algorithm.
-    
+An optimization via Simulation process consists of a optimizer that uses a simulation to evaluate the results, or the simulation input is generated using an optimizer. Following example a simulation is used to evaluate the population of each epoch of a genetic algorithm. The WIND Channel communication mechanism is used to communicate between the optimizer and the simulations.
+
     bin simulation = {name:"hello",path="./sim.sh"} 
     aws env = {name="aws",accessKeyId="K",secretKey="S",instancetype="t2.micro",instancenumber="4"}
     data initial_condition = {type="csv",name="init_opt.csv",sep=",")
