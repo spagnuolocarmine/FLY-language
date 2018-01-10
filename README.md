@@ -85,12 +85,12 @@ WIND Optimization via Simulation process
     data initial_condition = {type="csv",name="init_opt.csv",sep=",")
     channel c = {name="evaluation"}
     func eval(x){ 
-    	var result = execute sim for x
+    	var result = execute sim for x on aws
 	c <- result
     }
     opt myOpt = {name="ga",chromosome=initial_condition,evaluationfunction=eval}
   
-    var population=execute myOpt for [100] on aws
+    var population=execute myOpt for [100]
     func getOptResult(){
     	var new_population = []
 	for i to 100
@@ -101,7 +101,7 @@ WIND Optimization via Simulation process
     while j < 50
     {
     	new_population=getOptResult()
-	execute myOpt for [100] on aws
+	execute myOpt for [100]
     }
     
     
