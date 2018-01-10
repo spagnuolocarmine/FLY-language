@@ -75,5 +75,34 @@ WIND is designed as a scripting language that use as run-time environment, the l
     func eval(x){return "orignal value:"+x+" absolute value"+abs(x)}
     var result3=async parallel execute myOpt for data on aws then func
     print result3
+  
+WIND Optimization via Simulation process  
+    
+    bin simulation = {name:"hello",path="./sim.sh"} 
+    aws env = {name="aws",accessKeyId="K",secretKey="S",instancetype="t2.micro",instancenumber="4"}
+    
+    
+    data initial_condition = {type="csv",name="init_opt.csv",sep=",")
+    channel c = {name="evaluation"}
+    func eval(x){ 
+    	var result = execute sim for x
+	c <- result
+    }
+    opt myOpt = {name="ga",chromosome=initial_condition,evaluationfunction=eval}
+  
+    var population=execute myOpt for [100] on aws
+    func getOptResult(){
+    	var new_population = []
+	for i to 100
+		new_population[i] <- c
+	return new_population
+    }
+    var j = 0
+    while j < 50
+    {
+    	new_population=getOptResult()
+	execute myOpt for [100] on aws
+    }
+    
     
 
