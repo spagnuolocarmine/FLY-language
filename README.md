@@ -12,8 +12,6 @@ On Unix, Linux, BSD, macOS, and Cygwin:
 
     ./configure
     make
-    make test
-    sudo make install
 
 ## Getting Started
 
