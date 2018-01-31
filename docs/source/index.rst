@@ -41,7 +41,22 @@ Butterfly core provides algorithms for:
    * geometric programming
    * linear fractional programming
    * convex-concave fractional 
-
+   * constraint-propagation
+- Graph Algorithms
+   * Travel Salesman
+   * Vehicle Routing
+   * Clique
+   * Coloring
+   * Matching
+   * Scoring
+   * Shortestpath
+   * Spanning
+   * Tour
+   * Isomorphism
+- Data structure sorting
+- Genetic Algorithms
+- Searching
+- Machine Learning
 
 .. toctree::
    :maxdepth: 2
