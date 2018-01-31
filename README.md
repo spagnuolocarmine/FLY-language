@@ -1,10 +1,10 @@
-# The WIND programming Language
+# The Butterfly programming Language
 
-WIND is an open source Domain Specific Language for scientific computing on the cloud.
+Butterfly is an open source Domain Specific Language for scientific computing on the cloud.
 
 ## General Information
 
-WIND is written using Xtext a framework for development of programming languages and domain-specific languages. WIND code is transformed in pure Java code that you can run on a Java Virtual Machine.
+Butterfly is written using Xtext a framework for development of programming languages and domain-specific languages. WIND code is transformed in pure Java code that you can run on a Java Virtual Machine.
 
 ## Build Instructions
 
@@ -15,7 +15,7 @@ On Unix, Linux, BSD, macOS, and Cygwin:
 
 ## Getting Started
 
-WIND is designed as a scripting language that use as run-time environment, the local machine or a cloud infrastructure, the script automates the execution of tasks that could alternatively be executed one-by-one by a human operator.
+Butterfly is designed as a scripting language that use as run-time environment, the local machine or a cloud infrastructure, the script automates the execution of tasks that could alternatively be executed one-by-one by a human operator.
 ### Cloud infrastructure
 
 - AWS
@@ -28,7 +28,7 @@ WIND is designed as a scripting language that use as run-time environment, the l
     aws env = {name="aws",accessKeyId="K",secretKey="S",instancetype="t2.micro",instancenumber="4"}
     opt myOpt = {name="ga",chromosome="[10,0.5]"}
     
-    //WIND Language channal for inter-call communications
+    //Butterfly Language channal for inter-call communications
     channel c = {name="c"} //queue topic based 
     for i to 10
     async execute func(){ print <-c} on aws
@@ -74,9 +74,9 @@ WIND is designed as a scripting language that use as run-time environment, the l
     var result3=async parallel execute myOpt for data on aws then func
     print result3
   
-### WIND Optimization via Simulation process  
+### Butterfly Optimization via Simulation process  
 
-An optimization via Simulation process consists of a optimizer that uses a simulation to evaluate the results, or the simulation input is generated using an optimizer. Following example a simulation is used to evaluate the population of each epoch of a genetic algorithm. The WIND Channel communication mechanism is used to communicate between the optimizer and the simulations.
+An optimization via Simulation process consists of a optimizer that uses a simulation to evaluate the results, or the simulation input is generated using an optimizer. Following example a simulation is used to evaluate the population of each epoch of a genetic algorithm. The Butterfly Channel communication mechanism is used to communicate between the optimizer and the simulations.
 
     bin simulation = {name:"hello",path="./sim.sh"} 
     aws env = {name="aws",accessKeyId="K",secretKey="S",instancetype="t2.micro",instancenumber="4"}
