@@ -8,7 +8,7 @@ Welcome to Butterfly Language's documentation!
 
 Butterfly language is a Parallel programming Domain Specific Language 
 for scientific programming on a cloud computing infrastructure. 
-Butterfly is a scripting language influenced by JavaScript, R and Java. 
+Butterfly is a scripting language influenced by JavaScript (memory management), R (dataframe) and Java (flow control structure). 
 A butterfly program is a script program that allows to execute automatically 
 butterfly function (you have your butterflys swarm). 
 A butterfly function is similar to functions in a functional programming. 
@@ -18,7 +18,8 @@ butterfly function using communication channel.
 
 Butterfly is untyped language ..
 
-* Why Butterfly?
+Why Butterfly?
+---------------
 
 Butterfly born to fill the gap the programming complexity of the different APIs,
 provided by the cloud computing vendors, and the scientific computing 
@@ -26,7 +27,8 @@ libraries support of the programming languages (such as R and Python).
 Butterfly provides binding for Amazon AWS and is planned to release 
 the support for Microsoft Azure in the 2.0 version.
 
-* Scientific programming library 
+Scientific programming library 
+---------------
 
 Butterfly is not only a DSL for scalable computing but also a holistic scientific programming library.
 
