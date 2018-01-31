@@ -18,6 +18,30 @@ butterfly function using communication channel.
 
 Butterfly is untyped language ..
 
+* Why Butterfly?
+
+Butterfly born to fill the gap the programming complexity of the different APIs,
+provided by the cloud computing vendors, and the scientific computing 
+libraries support of the programming languages (such as R and Python).
+Butterfly provides binding for Amazon AWS and is planned to release 
+the support for Microsoft Azure in the 2.0 version.
+
+* Scientific programming library 
+
+Butterfly is not only a DSL for scalable computing but also a holistic scientific programming library.
+
+Butterfly core provides algorithms for:
+
+- Optimization
+   * linear programming
+   * quadratic programming
+   * quadratically constrained quadratic 
+   * second order cone programming
+   * semidefinite programming
+   * geometric programming
+   * linear fractional programming
+   * convex-concave fractional 
+
 
 .. toctree::
    :maxdepth: 2
