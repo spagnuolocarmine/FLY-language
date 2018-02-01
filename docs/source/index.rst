@@ -18,7 +18,7 @@ butterfly function using communication channel.
 
 Butterfly is untyped language ..
 
-Why Butterfly?
+Features and philosophy
 ---------------
 
 Butterfly born to fill the gap the programming complexity of the different APIs,
@@ -30,7 +30,7 @@ the support for Microsoft Azure in the 2.0 version.
 Scientific programming library 
 ---------------
 
-Butterfly is not only a DSL for scalable computing but also a holistic scientific programming library.
+Butterfly could be seen as an holistic scientific programming library presented as form of DSL for scalable computing on the cloud.
 
 Butterfly core provides algorithms for:
 
@@ -63,7 +63,11 @@ Butterfly core provides algorithms for:
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-
+    syntaxandsemantics
+    libraries
+    implementations
+    tutorial
+   
 
 
 Indices and tables
