@@ -69,7 +69,6 @@ Butterfly core provides algorithms for:
     tutorial
    
 
-
 Indices and tables
 ==================
 
