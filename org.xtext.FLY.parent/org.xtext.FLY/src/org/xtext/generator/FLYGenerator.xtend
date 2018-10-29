@@ -52,6 +52,7 @@ import org.xtext.fLY.DeclarationObject
 import org.xtext.fLY.DeclarationFeature
 import org.xtext.fLY.FlyFunctionCall
 import org.xtext.fLY.SortExpression
+import java.util.EventObject
 
 /**
  * Generates code from your model files on save.
@@ -70,10 +71,18 @@ class FLYGenerator extends AbstractGenerator {
 		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
-		fsa.generateFile(name + ".java", resource.compile)
+		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
+			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).value_s;
+			if (type_env != "local"){
+				
+				fsa.generateFile(element.target.name+".js",resource.compileJS(element.target,type_env));
+			}
+		}
+		fsa.generateFile(name + ".java", resource.compileJava)
 	}
+		
 
-	def CharSequence compile(Resource resource) '''
+	def CharSequence compileJava(Resource resource) '''
 		import java.io.File;
 		import java.io.FileInputStream;
 		import java.io.FileOutputStream;
@@ -906,7 +915,7 @@ class FLYGenerator extends AbstractGenerator {
 			
 					__iam.putRolePolicy(__putRolePolicyRequest);
 								
-					String __body=«generateBodyJs(call.target.body,call.target.name)»;
+					««« String __body=«generateBodyJs(call.target.body,call.target.name)»;
 					try {
 						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
 						__out.write(__body);
@@ -1477,17 +1486,25 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	// ----------------------------- GENERATE JavaScript CODE -----------------------------------
-	def generateBodyJs(BlockExpression exps,String name) {
-		'''
-			"var AWS = require('aws-sdk'); \n"
-			+"var dataframe = require('dataframe-js').DataFrame \n"
-			+"var sqs = new AWS.SQS(); \n"
-			
-			+"exports.handler = async function «name»(){ \n"
-				«FOR exp : exps.expressions»
-					«generateJsExpression(exp)»
-				«ENDFOR»
-			+"} \n" 
+	
+	def CharSequence compileJS(Resource resource,FunctionDefinition func,String env)'''
+		«generateBodyJs(func.body,func.name,env)»
+	'''
+	
+	
+	def generateBodyJs(BlockExpression exps,String name,String env) {
+	'''
+		«IF env == "aws"»
+			var AWS = require('aws-sdk');
+			var sqs = new AWS.SQS();
+		«ENDIF»
+		var dataframe = require('dataframe-js').DataFrame
+		
+		exports.handler = async function(context,event){
+			«FOR exp : exps.expressions»
+				«generateJsExpression(exp)»
+			«ENDFOR»
+		}
 		'''
 	}
 
@@ -1495,32 +1512,32 @@ class FLYGenerator extends AbstractGenerator {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
-				+"var params = {\n "
-				+"	QueueName : \"«exp.target.name»\" \n"
-				+"};\n"
-				+"sqs.getQueueUrl(params, function(err,data){ \n"
-				+"	if(err){\n"
-				+"		console.log(\"Error\", err);\n"
-				+"	}else{\n"
-				+"		var params2= { \n"
-				+"		MessageBody : «generateJsArithmeticExpression(exp.expression)»,\n"
-				+"		QueueUrl : data.QueueUrl \n"
-				+"		}\n"
-				+"		sqs.sendMessage(params2, function(err,data){\n"
-				+"			if(err){\n"
-				+"				console.log(\"Error\",err);\n"
-				+"			}else{\n"
-				+"				console.log(\"Send Success\");\n"
-				+"				}\n"
-				+"		});\n"
-				+"	}\n"
-				+"});\n"
+				var params = {
+					QueueName : "«exp.target.name»" 
+				};
+				sqs.getQueueUrl(params, function(err,data){
+					if(err){
+						console.log(\"Error\", err);
+					}else{
+						var params2= {
+						MessageBody : «generateJsArithmeticExpression(exp.expression)»,
+						QueueUrl : data.QueueUrl
+						}
+						sqs.sendMessage(params2, function(err,data){
+							if(err){
+								console.log("Error",err);"
+							}else{
+								console.log("Send Success");
+							}
+						});
+					}
+				});
 			'''
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
 				if(exp.right instanceof NameObjectDef){
 					memory.put(exp.name, "HashMap")
-				 s += '''+"var «exp.name» = {'''
+				 s += '''var «exp.name» = {'''
 				var i = 0;
 				for (f : (exp.right as NameObjectDef).features) {
 					if (f.feature != null) {
@@ -1535,11 +1552,11 @@ class FLYGenerator extends AbstractGenerator {
 						s += ''','''
 					}
 				}
-				s+='''}\n"'''
+				s+='''}'''
 				
 			} else{
 				s += '''
-					+"var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression)»; \n"
+					var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression)»;
 				'''
 			}
 			
@@ -1547,17 +1564,16 @@ class FLYGenerator extends AbstractGenerator {
 			if (exp.typeobject.equals("dat")) {
 				memory.put(exp.name,"Table")
 				s += '''
-					+"var «exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)») \n"
+					var «exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
 				'''
 			}
 		} else if (exp instanceof IfExpression) {
 			s += '''
-				+"if(«generateJsArithmeticExpression(exp.cond)»)\n "
+				if(«generateJsArithmeticExpression(exp.cond)»)
 					«generateJsExpression(exp.then)» 
 				«IF exp.^else != null»
-				+"else\n"
+				else
 					«generateJsExpression(exp.^else)»
-				+"\n"
 				«ENDIF»
 			'''
 		} else if (exp instanceof ForExpression) {
@@ -1569,7 +1585,8 @@ class FLYGenerator extends AbstractGenerator {
 				«generateJsWhileExpression(exp)»
 			'''
 		} else if (exp instanceof BlockExpression) {
-			s += '''
+			s += 
+			'''
 				«generateJsBlockExpression(exp)»
 			'''
 		} else if (exp instanceof Assignment) {
@@ -1578,7 +1595,7 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		} else if (exp instanceof PrintExpression){
 			s+='''
-				+" console.log(«generateJsArithmeticExpression(exp.print)») \n"
+				console.log(«generateJsArithmeticExpression(exp.print)») 
 			'''
 		}
 		return s
@@ -1599,7 +1616,7 @@ class FLYGenerator extends AbstractGenerator {
 							
 						'''
 					}
-				} else { // local environment
+				} else { // other environment
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
 							
@@ -1617,14 +1634,14 @@ class FLYGenerator extends AbstractGenerator {
 					get(0).value_s.equals("aws")) { // aws environment
 					return '''
 					'''
-				} else { // local environment
+				} else { // other environment
 					return '''
 						
 					'''
 				}
 			} else {
 				return '''
-					+"«generateJsArithmeticExpression(assignment.feature)» «assignment.op» «generateJsArithmeticExpression(assignment.value)» \n"
+					«generateJsArithmeticExpression(assignment.feature)» «assignment.op» «generateJsArithmeticExpression(assignment.value)» 
 				'''
 			}
 		}
@@ -1633,21 +1650,21 @@ class FLYGenerator extends AbstractGenerator {
 				memory.put(((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
 					(assignment.feature_obj as NameObject).value, valuateArithmeticExpression(assignment.value))
 				return '''
-					+"«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»[\"«(assignment.feature_obj as NameObject).value»\"] = «generateJsArithmeticExpression(assignment.value)» \n"
+					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»[\"«(assignment.feature_obj as NameObject).value»\"] = «generateJsArithmeticExpression(assignment.value)» 
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
 				if ((assignment.feature_obj as IndexObject).value != null) {
 					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" + (assignment.feature_obj as IndexObject).value.name + "]", valuateArithmeticExpression(assignment.value))
 					return '''
-						+"«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).value.name»] = «generateJsArithmeticExpression(assignment.value)» \n"
+						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).value.name»] = «generateJsArithmeticExpression(assignment.value)» 
 					'''
 				} else {
 					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
 						(assignment.feature_obj as IndexObject).valuet + "]",
 						valuateArithmeticExpression(assignment.value))
 					return '''
-						+"«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).valuet»] = «generateJsArithmeticExpression(assignment.value)» \n"
+						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).valuet»] = «generateJsArithmeticExpression(assignment.value)» 
 					'''
 				}
 			}
@@ -1656,7 +1673,7 @@ class FLYGenerator extends AbstractGenerator {
 	
 	def generateJsWhileExpression(WhileExpression exp) {
 		'''
-			+"while(«generateJsArithmeticExpression(exp.cond)»)"
+			while(«generateJsArithmeticExpression(exp.cond)»)
 				«generateJsExpression(exp.body)»
 		'''
 	}
@@ -1665,11 +1682,20 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp.object instanceof CastExpression) {
 			if((exp.object as CastExpression).type.equals("Dat")){
 				return '''
+				«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){
+				«IF exp.body instanceof BlockExpression»
+					«FOR e: (exp.body as BlockExpression).expressions»
+						«generateJsExpression(e)»
+					«ENDFOR»
+				«ELSE»
+					«generateJsExpression(exp.body)»
+				«ENDIF»
+				})
 				'''
 			}else if((exp.object as CastExpression).type.equals("Object")){
 				return '''
-					+"for(__key in « ((exp.object as CastExpression).target as VariableLiteral).variable.name » ){\n"
-					+"	var «(exp.index as VariableDeclaration).name» = {k:__key, v:«((exp.object as CastExpression).target as VariableLiteral).variable.name»[__key]} \n"
+					for(__key in « ((exp.object as CastExpression).target as VariableLiteral).variable.name » ){
+						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«((exp.object as CastExpression).target as VariableLiteral).variable.name»[__key]} 
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e)»
@@ -1677,16 +1703,16 @@ class FLYGenerator extends AbstractGenerator {
 						«ELSE»
 							«generateJsExpression(exp.body)»	
 						«ENDIF»
-					+"}\n"
+					}
 				'''
 			}
 		} else if (exp.object instanceof RangeLiteral) {
 			return '''
-				+"var «(exp.index as VariableDeclaration).name»;\n"
-				+"for(«(exp.index as VariableDeclaration).name» = «(exp.object as RangeLiteral).value1» ;«(exp.index as VariableDeclaration).name» < «(exp.object as RangeLiteral).value2»; «(exp.index as VariableDeclaration).name»++)"
-				«IF exp.body instanceof BlockExpression»+"
+				var «(exp.index as VariableDeclaration).name»;
+				for(«(exp.index as VariableDeclaration).name» = «(exp.object as RangeLiteral).value1» ;«(exp.index as VariableDeclaration).name» < «(exp.object as RangeLiteral).value2»; «(exp.index as VariableDeclaration).name»++)
+				«IF exp.body instanceof BlockExpression»
 					«generateJsBlockExpression(exp.body as BlockExpression)»
-				«ELSE»+"\n"
+				«ELSE»
 					«generateJsExpression(exp.body)»
 				«ENDIF»
 			'''
@@ -1695,8 +1721,8 @@ class FLYGenerator extends AbstractGenerator {
 				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				memory.get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
 				return '''
-					+"for(__key in « (exp.object as VariableLiteral).variable.name » ){\n"
-					+"	var «(exp.index as VariableDeclaration).name» = {k:__key, v:«(exp.object as VariableLiteral).variable.name»[__key]} \n"
+					for(__key in « (exp.object as VariableLiteral).variable.name » ){
+						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«(exp.object as VariableLiteral).variable.name»[__key]}
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e)»
@@ -1704,20 +1730,20 @@ class FLYGenerator extends AbstractGenerator {
 						«ELSE»
 							«generateJsExpression(exp.body)»	
 						«ENDIF»
-					+"}\n"
+					}
 				'''
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
 				memory.get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				return '''
-				+"«(exp.object as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){ \n"
+				«(exp.object as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
 				«IF exp.body instanceof BlockExpression»
 					«FOR e: (exp.body as BlockExpression).expressions»
-						«generateJsExpression(e)»
+							«generateJsExpression(e)»
 					«ENDFOR»
 				«ELSE»
-					«generateJsExpression(exp.body)»
+						«generateJsExpression(exp.body)»
 				«ENDIF»
-				+"}) \n"
+				});
 				'''
 			}
 		}
@@ -1725,11 +1751,12 @@ class FLYGenerator extends AbstractGenerator {
 
 
 	def generateJsBlockExpression(BlockExpression block) {
-		'''+"{\n"
+		'''
+		{
 			«FOR exp : block.expressions»
 				«generateJsExpression(exp)»
 			«ENDFOR»
-		+"}\n"
+		}
 		'''
 	}
 
