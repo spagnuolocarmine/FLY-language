@@ -38,7 +38,7 @@ class FLYValidator extends AbstractFLYValidator {
 	public static val DUPLCIATE_VAL = "org.text.fly.DuplicateValue"
 	
 	public static val WRONG_RETURN = "org.text.fly.WrongReturn"
-	
+
 	def checkType(BinaryOperation e) {
 		if (e.feature.equals("+")) {
 			val left = getTypeAndCheckNotNull(e.left, FLYPackage.Literals::BINARY_OPERATION__LEFT)
@@ -110,7 +110,7 @@ class FLYValidator extends AbstractFLYValidator {
 		checkNotDat(e.operand?.typeFor, FLYPackage.Literals::POSTFIX_OPERATION__OPERAND)
 	}
 	
-		def private checkExpectedSame(Object left, Object right) {
+	def private checkExpectedSame(Object left, Object right) {
 		if (right != null && left != null && right != left) {
 			error("expected the same type, but was " + left + ", " + right,
 				FLYPackage.Literals::BINARY_OPERATION__FEATURE, WRONG_TYPE)

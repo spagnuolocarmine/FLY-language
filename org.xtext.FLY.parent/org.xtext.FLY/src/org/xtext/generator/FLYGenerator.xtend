@@ -53,6 +53,7 @@ import org.xtext.fLY.DeclarationFeature
 import org.xtext.fLY.FlyFunctionCall
 import org.xtext.fLY.SortExpression
 import java.util.EventObject
+import org.xtext.fLY.LocalFunctionInput
 
 /**
  * Generates code from your model files on save.
@@ -66,11 +67,14 @@ class FLYGenerator extends AbstractGenerator {
 	var func_ID = 0
 	var last_func_result = null
 	var __local = false
+	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
+		res = resource;
 		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
+		// generate .js file
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).value_s;
 			if (type_env != "local"){
@@ -78,6 +82,7 @@ class FLYGenerator extends AbstractGenerator {
 				fsa.generateFile(element.target.name+".js",resource.compileJS(element.target,type_env));
 			}
 		}
+		//generate .java file
 		fsa.generateFile(name + ".java", resource.compileJava)
 	}
 		
@@ -158,6 +163,7 @@ class FLYGenerator extends AbstractGenerator {
 		
 		public class «name» {
 			
+			
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof ChannelDeclaration»
 					«generateChannelDeclaration(element)»	
@@ -184,12 +190,12 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDIF»
 			}
 				
-		«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
-			«IF checkBlock(element.eContainer)==false»
+			«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
+				«IF checkBlock(element.eContainer)==false»
 				«generateFunctionDefinition(element)»
-										
-			«ENDIF»	
-		«ENDFOR»	
+									
+				«ENDIF»	
+			«ENDFOR»	
 		
 		}
 	'''
@@ -1138,7 +1144,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 			'''
 		} else if (object instanceof VariableLiteral) {
-
+			println((object as VariableLiteral).variable)
 			if (((object as VariableLiteral).variable.typeobject.equals('var') &&
 				((object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				memory.get((object as VariableLiteral).variable.name).equals("HashMap")) {
@@ -1325,17 +1331,51 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateFunctionDefinition(FunctionDefinition definition) {
 		'''
-			protected static Object «definition.name»(«FOR params : definition.parameters»Object «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+			protected static Object «definition.name»(«FOR params : definition.parameters»«getParameterType(params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
 				«FOR el : definition.body.expressions»
 					«generateExpression(el)»
 				«ENDFOR»
 				«IF !checkReturn(definition.body)»
 					return null;
 				«ENDIF»
-				}
+			}
 		'''
 	}
-
+	
+	//utility: get the type of parameter
+	def getParameterType(Expression param,int pos){
+		for(exp :res.allContents.toIterable.filter(Expression)){
+			if(exp instanceof LocalFunctionCall){
+				var typeobject = valuateArithmeticExpression((exp.input as LocalFunctionInput).inputs.get(pos))
+				if(typeobject == "Table")
+					(param as VariableDeclaration).typeobject = "dat"
+				else
+					(param as VariableDeclaration).typeobject = "var"
+				return typeobject
+			}else if(exp instanceof FlyFunctionCall){
+				if (exp.input.isIs_for_index){
+					if( exp.input.f_index instanceof RangeLiteral)
+						return "Integer"
+					else if (exp.input.f_index instanceof VariableLiteral){
+						var typeobject = valuateArithmeticExpression(exp.input.f_index as VariableLiteral);
+						if( typeobject == "Table")
+							(param as VariableDeclaration).typeobject = "dat"
+						else 
+							(param as VariableDeclaration).typeobject = "var"
+						return typeobject
+					}
+				}else{
+					var typeobject = valuateArithmeticExpression((exp.input as FunctionInput).expressions.get(pos));
+					if( typeobject == "Table")
+						(param as VariableDeclaration).typeobject = "dat"
+					else 
+						(param as VariableDeclaration).typeobject = "var"
+					return typeobject
+				}
+			}
+		}
+	}
+	
 	def String valuateArithmeticExpression(ArithmeticExpression exp) {
 		if (exp instanceof NumberLiteral) {
 			return "Integer"
