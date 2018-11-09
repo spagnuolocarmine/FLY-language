@@ -54,6 +54,7 @@ import org.xtext.fLY.FlyFunctionCall
 import org.xtext.fLY.SortExpression
 import java.util.EventObject
 import org.xtext.fLY.LocalFunctionInput
+import javax.lang.model.type.ArrayType
 
 /**
  * Generates code from your model files on save.
@@ -62,7 +63,7 @@ import org.xtext.fLY.LocalFunctionInput
  */
 class FLYGenerator extends AbstractGenerator {
 
-	HashMap<String, String> memory = new HashMap<String, String>(); // memory hash
+	HashMap<String, HashMap<String, String>> typeSystem = new HashMap<String, HashMap<String, String>>(); // memory hash
 	var name = ""
 	var func_ID = 0
 	var last_func_result = null
@@ -74,18 +75,21 @@ class FLYGenerator extends AbstractGenerator {
 		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
+		
+		// generate .java file
+		typeSystem.put("main", new HashMap<String, String>())
+		fsa.generateFile(name + ".java", resource.compileJava)
+		
 		// generate .js file
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).value_s;
-			if (type_env != "local"){
-				
-				fsa.generateFile(element.target.name+".js",resource.compileJS(element.target,type_env));
+			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
+				value_s;
+			if (type_env != "local") {
+
+				fsa.generateFile(element.target.name + ".js", resource.compileJS(element.target, type_env));
 			}
 		}
-		//generate .java file
-		fsa.generateFile(name + ".java", resource.compileJava)
 	}
-		
 
 	def CharSequence compileJava(Resource resource) '''
 		import java.io.File;
@@ -105,10 +109,8 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.HashMap;
 		import java.time.LocalDate;
 		import tech.tablesaw.api.Table;
-		import tech.tablesaw.columns.ColumnReference;
 		import tech.tablesaw.io.csv.CsvReadOptions;
 		import tech.tablesaw.columns.Column;
-		import static tech.tablesaw.api.QueryHelper.*;
 		import java.util.concurrent.LinkedTransferQueue;
 		import java.util.concurrent.ExecutorService;
 		import java.util.concurrent.Executors;
@@ -181,7 +183,7 @@ class FLYGenerator extends AbstractGenerator {
 								
 				«FOR element : resource.allContents.toIterable.filter(Expression)»
 					«IF checkBlock(element.eContainer)==false»
-						«generateExpression(element)»
+						«generateExpression(element,"main")»
 					«ENDIF»
 				«ENDFOR»
 				
@@ -192,21 +194,21 @@ class FLYGenerator extends AbstractGenerator {
 				
 			«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
 				«IF checkBlock(element.eContainer)==false»
-				«generateFunctionDefinition(element)»
-									
+					«generateFunctionDefinition(element)»
+										
 				«ENDIF»	
 			«ENDFOR»	
 		
 		}
 	'''
 
-	def generateExpression(Expression element) {
+	def generateExpression(Expression element, String scope) {
 		'''
 			«IF element  instanceof VariableDeclaration»
-				«generateVariableDeclaration(element)»
+				«generateVariableDeclaration(element,scope)»
 			«ENDIF»
 			«IF element instanceof DatDeclaration»
-				«generateDatDeclaration(element)»
+				«generateDatDeclaration(element,scope)»
 			«ENDIF»
 			«IF element instanceof RandomDeclaration»
 				«generateRandomDeclaration(element)»
@@ -215,51 +217,51 @@ class FLYGenerator extends AbstractGenerator {
 				«generateEnvironmentDeclaration(element)»
 			«ENDIF»
 			«IF element instanceof Assignment»
-				«generateAssignment(element)»
+				«generateAssignment(element,scope)»
 			«ENDIF»
 			«IF element instanceof PrintExpression»
-				«generatePrintExpression(element)»
+				«generatePrintExpression(element,scope)»
 			«ENDIF»
 			«IF element instanceof IfExpression»
-				«generateIfExpression(element)»
+				«generateIfExpression(element,scope)»
 			«ENDIF»
 			«IF element instanceof ForExpression»
-				«generateForExpression(element)»
+				«generateForExpression(element,scope)»
 			«ENDIF»
 			«IF element instanceof WhileExpression»
-				«generateWhileExpression(element)»
+				«generateWhileExpression(element,scope)»
 			«ENDIF»
 			«IF element instanceof ChannelSend»
-				«generateChannelSend(element)»;
+				«generateChannelSend(element,scope)»;
 			«ENDIF»
 			«IF element instanceof ChannelReceive»
-				«generateChannelReceive(element)»;
+				«generateChannelReceive(element,scope)»;
 			«ENDIF»
 			«IF element instanceof FlyFunctionCall»
-				«generateFlyFunctionCall(element)»
+				«generateFlyFunctionCall(element,scope)»
 			«ENDIF»
 			«IF element instanceof LocalFunctionCall»
-				«generateLocalFunctionCall(element)»
+				«generateLocalFunctionCall(element,scope)»
 			«ENDIF»
 			«IF element instanceof FunctionReturn»
-				«generateFunctionReturn(element)»
+				«generateFunctionReturn(element,scope)»
 			«ENDIF»
 			«IF element instanceof BlockExpression»
-				«generateBlockExpression(element)»
+				«generateBlockExpression(element,scope)»
 			«ENDIF»
 			«IF element instanceof VariableFunction»
-				«generateVariableFunction(element,true)»
+				«generateVariableFunction(element,true,scope)»
 			«ENDIF»
 			«IF element instanceof ChannelDeclaration»
 				«generateChanelDeclarationForCloud(element)»
 			«ENDIF»
 			«IF element instanceof SortExpression»
-				«generateSortExpression(element)»
+				«generateSortExpression(element,scope)»
 			«ENDIF»
 		'''
 	}
 
-	def generateSortExpression(SortExpression exp) {
+	def generateSortExpression(SortExpression exp, String scope) {
 		return '''
 			ArrayList<Entry<Object,Object>> __sup = new ArrayList<Entry<Object,Object>>(«exp.target.name».entrySet());
 			Collections.sort(__sup, new Comparator<Entry<Object,Object>>() {
@@ -288,21 +290,22 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	// methods for Variable Delcaration 
-	def generateVariableDeclaration(VariableDeclaration dec) {
+	def generateVariableDeclaration(VariableDeclaration dec, String scope) {
 		if (dec.typeobject.equals('var')) { // var declaration
 			if (dec.right instanceof NameObjectDef) { // if is a NameObject
-				memory.put(dec.name, "HashMap")
+				typeSystem.get(scope).put(dec.name, "HashMap")
 				var s = '''HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
 				'''
 				var i = 0;
 				for (f : (dec.right as NameObjectDef).features) {
 					if (f.feature != null) {
-						memory.put(dec.name + "." + f.feature, valuateArithmeticExpression(f.value))
-						s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value)»);
+						typeSystem.get(scope).put(dec.name + "." + f.feature,
+							valuateArithmeticExpression(f.value, scope))
+						s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value,scope)»);
 						'''
 					} else {
-						memory.put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value))
-						s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value)»);
+						typeSystem.get(scope).put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value, scope))
+						s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value,scope)»);
 						'''
 						i++
 					}
@@ -311,16 +314,16 @@ class FLYGenerator extends AbstractGenerator {
 				return s
 			} else if (dec.right instanceof FlyFunctionCall) {
 				var s = '''
-					«generateFlyFunctionCall(dec.right as FlyFunctionCall)»
+					«generateFlyFunctionCall(dec.right as FlyFunctionCall,scope)»
 					List<Future<Object>> «dec.name» = «last_func_result»;
 				'''
-				memory.put(dec.name, "FutureList")
+				typeSystem.get(scope).put(dec.name, "FutureList")
 				return s
 			} else if (dec.right instanceof ChannelReceive) {
 				var s = '''
 					Object «dec.name» = null;
 					try{
-						e = «generateChannelReceive(dec.right as ChannelReceive)»
+						e = «generateChannelReceive(dec.right as ChannelReceive,scope)»
 					}catch(InterruptedException e1){
 						e1.printStackTrace();
 					}
@@ -328,25 +331,27 @@ class FLYGenerator extends AbstractGenerator {
 				return s
 			} else if (dec.right instanceof VariableFunction) {
 				if ((dec.right as VariableFunction).feature.equals("split")) {
-					memory.put(dec.name, "HashMap")
+					typeSystem.get(scope).put(dec.name, "HashMap")
 					return '''
 						HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
 						int _«dec.name»_crt=0;
-						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0))»)){
+						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0),scope)»)){
 							«dec.name».put(_«dec.name»_crt++,_«dec.name»);
 						}
 					'''
 				} else {
-					memory.put(dec.name, valuateArithmeticExpression(dec.right as VariableFunction))
+					typeSystem.get(scope).put(dec.name,
+						valuateArithmeticExpression(dec.right as VariableFunction, scope))
 					return '''
-						«valuateArithmeticExpression(dec.right as VariableFunction)» «dec.name» = «generateArithmeticExpression(dec.right as VariableFunction)»;
+						«valuateArithmeticExpression(dec.right as VariableFunction,scope)» «dec.name» = «generateArithmeticExpression(dec.right as VariableFunction,scope)»;
 					'''
 				}
 
 			} else { // if is an Expression to evaluate
-				memory.put(dec.name, valuateArithmeticExpression(dec.right as ArithmeticExpression))
-				println(dec.name + " --- " + memory.get(dec.name));
-				return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression)»;'''
+				typeSystem.get(scope).put(dec.name,
+					valuateArithmeticExpression(dec.right as ArithmeticExpression, scope))
+				//println(dec.name + " --- " + typeSystem.get(scope).get(dec.name));
+				return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
 			}
 		}
 	}
@@ -366,23 +371,31 @@ class FLYGenerator extends AbstractGenerator {
 		if (env.equals("aws")) {
 			var access_id_key = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
 			var secret_access_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
-			// var aws_region =(dec.right as DeclarationObject).features.get(3)
+			var region = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
 			return '''
 				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
+				
+				static AmazonSQS __sqs  = AmazonSQSClient.builder()
+					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+					.withRegion("«region»")
+					.build();
+				
+				static AmazonIdentityManagement __iam = AmazonIdentityManagementClientBuilder.standard()
+					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+					.withRegion("«region»")
+					.build();
+					
+				static AWSLambda __lambda = AWSLambdaClientBuilder.standard()
+					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+					.withRegion("«region»")
+					.build();
 			'''
 		}
 	}
 
 	def generateChannelDeclaration(ChannelDeclaration declaration) {
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("aws")) {
-			return '''
-				static AmazonSQS __sqs  = AmazonSQSClient.builder()
-												.withCredentials(new AWSStaticCredentialsProvider(«declaration.environment.name»))
-												.withRegion("«((declaration.environment.right as DeclarationObject).features.get(3)).value_s»")
-												.build();
-			'''
-		} else if (env.equals("local")) {
+		if (env.equals("local")) {
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
 			'''
@@ -398,18 +411,18 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 
-	def generateDatDeclaration(DatDeclaration dec) {
-		memory.put(dec.name, "Table")
+	def generateDatDeclaration(DatDeclaration dec, String scope) {
+		typeSystem.get(scope).put(dec.name, "Table")
 		if (dec.right instanceof NameObjectDef) {
 			return '''
 				Table «dec.name» = Table.read().csv(CsvReadOptions
-					.builder(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(1).value)»)
-					.tableName(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(0).value)»)
-					.separator('«(generateArithmeticExpression((dec.right as NameObjectDef).features.get(3).value) as String).charAt(1)»')
+					.builder(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(1).value,scope)»)
+					.tableName(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(0).value,scope)»)
+					.separator('«(generateArithmeticExpression((dec.right as NameObjectDef).features.get(3).value,scope) as String).charAt(1)»')
 				);
 			'''
 		} else {
-			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression)»;'''
+			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
 		}
 	}
 
@@ -420,21 +433,21 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	// methods for ArithmeticExpression
-	def generateArithmeticExpression(ArithmeticExpression expression) {
+	def generateArithmeticExpression(ArithmeticExpression expression, String scope) {
 		// println(expression)
 		if (expression instanceof BinaryOperation) {
 			if (expression.feature.equals("and"))
-				return '''«generateArithmeticExpression(expression.left)» && «generateArithmeticExpression(expression.right)»'''
+				return '''«generateArithmeticExpression(expression.left,scope)» && «generateArithmeticExpression(expression.right,scope)»'''
 			else if (expression.feature.equals("or"))
-				return '''«generateArithmeticExpression(expression.left)» || «generateArithmeticExpression(expression.right)»'''
+				return '''«generateArithmeticExpression(expression.left,scope)» || «generateArithmeticExpression(expression.right,scope)»'''
 			else
-				return '''«generateArithmeticExpression(expression.left)» «expression.feature» «generateArithmeticExpression(expression.right)»'''
+				return '''«generateArithmeticExpression(expression.left,scope)» «expression.feature» «generateArithmeticExpression(expression.right,scope)»'''
 		} else if (expression instanceof UnaryOperation) {
-			return '''«expression.feature»«generateArithmeticExpression(expression.operand)»'''
+			return '''«expression.feature»«generateArithmeticExpression(expression.operand,scope)»'''
 		} else if (expression instanceof PostfixOperation) {
-			return '''«generateArithmeticExpression(expression.operand)»«expression.feature»'''
+			return '''«generateArithmeticExpression(expression.operand,scope)»«expression.feature»'''
 		} else if (expression instanceof ParenthesizedExpression) {
-			return '''(«generateArithmeticExpression(expression.expression)»)'''
+			return '''(«generateArithmeticExpression(expression.expression,scope)»)'''
 		} else if (expression instanceof NumberLiteral) {
 			return '''«expression.value»'''
 		} else if (expression instanceof BooleanLiteral) {
@@ -446,19 +459,19 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
-			if (memory.get(expression.name.name + "." + expression.value) !== null) {
-				return '''(«memory.get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
+			if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
+				return '''(«typeSystem.get(scope).get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
 			} else {
 				return '''«expression.name.name».get("«expression.value»")'''
 			}
 		} else if (expression instanceof IndexObject) {
-			if (memory.get(expression.name.name + "[" + expression.valuet + "]") !== null) {
-				return '''(«memory.get(expression.name.name+"["+expression.valuet+"]")») «expression.name.name».get("«expression.valuet»")'''
+			if (typeSystem.get(scope).get(expression.name.name + "[" + expression.valuet + "]") !== null) {
+				return '''(«typeSystem.get(scope).get(expression.name.name+"["+expression.valuet+"]")») «expression.name.name».get("«expression.valuet»")'''
 			} else {
 				return '''«expression.name.name».get("«expression.valuet»")'''
 			}
 		} else if (expression instanceof DatSingleObject) {
-			return '''«expression.name.name».get(«generateArithmeticExpression(expression.value1)»,«generateArithmeticExpression(expression.value2)»)'''
+			return '''«expression.name.name».get(«generateArithmeticExpression(expression.value1,scope)»,«generateArithmeticExpression(expression.value2,scope)»)'''
 		} else if (expression instanceof DatTableObject) {
 		} else if (expression instanceof CastExpression) {
 			if (expression.op.equals("as")) { // cast
@@ -483,34 +496,34 @@ class FLYGenerator extends AbstractGenerator {
 					}
 				}
 				if (expression.type.equals("String")) {
-					return '''(String) «generateArithmeticExpression(expression.target)»'''
+					return '''(String) «generateArithmeticExpression(expression.target,scope)»'''
 				}
 				if (expression.type.equals("Integer")) {
 
-					return '''(Integer) «generateArithmeticExpression(expression.target)»'''
+					return '''(Integer) «generateArithmeticExpression(expression.target,scope)»'''
 
 				}
 				if (expression.type.equals("Float")) {
 
-					return '''(Double) «generateArithmeticExpression(expression.target)»'''
+					return '''(Double) «generateArithmeticExpression(expression.target,scope)»'''
 				}
 				if (expression.type.equals("Dat")) {
-					return '''(Table) «generateArithmeticExpression(expression.target)»'''
+					return '''(Table) «generateArithmeticExpression(expression.target,scope)»'''
 				}
 				if (expression.type.equals("Date")) {
-					return '''LocalDate.parse(«generateArithmeticExpression(expression.target)»)'''
+					return '''LocalDate.parse(«generateArithmeticExpression(expression.target,scope)»)'''
 				}
 				if (expression.type.equals("Object")) {
-					return '''((HashMap<Object,Object>) «generateArithmeticExpression(expression.target)»)'''
+					return '''((HashMap<Object,Object>) «generateArithmeticExpression(expression.target,scope)»)'''
 				}
 			} else { // parsing
 				if (expression.type.equals("Integer")) {
-					return '''Integer.parseInt((String) «generateArithmeticExpression(expression.target)»)'''
+					return '''Integer.parseInt( «generateArithmeticExpression(expression.target,scope)».toString())'''
 
 				}
 				if (expression.type.equals("Float")) {
 
-					return '''Double.parseDouble((String) «generateArithmeticExpression(expression.target)»)'''
+					return '''Double.parseDouble( «generateArithmeticExpression(expression.target,scope)».toString())'''
 				}
 			}
 
@@ -521,7 +534,7 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			s += "Math." + expression.feature + "("
 			for (exp : expression.expressions) {
-				s += generateArithmeticExpression(exp)
+				s += generateArithmeticExpression(exp, scope)
 				if (exp != expression.expressions.last()) {
 					s += ","
 				}
@@ -529,24 +542,24 @@ class FLYGenerator extends AbstractGenerator {
 			s += ")"
 			return s
 		} else if (expression instanceof VariableFunction) {
-			return generateVariableFunction(expression, false)
+			return generateVariableFunction(expression, false, scope)
 		} else if (expression instanceof ChannelReceive) {
-			return generateChannelReceive(expression)
+			return generateChannelReceive(expression, scope)
 		} else if (expression instanceof ChannelSend) {
-			return generateChannelSend(expression)
+			return generateChannelSend(expression, scope)
 		} else if (expression instanceof LocalFunctionCall) {
-			var s = generateLocalFunctionCall(expression)
+			var s = generateLocalFunctionCall(expression, scope)
 			return s.substring(0, s.length - 1)
 		}
 	}
 
-	def generateVariableFunction(VariableFunction expression, Boolean t) {
+	def generateVariableFunction(VariableFunction expression, Boolean t, String scope) {
 		if (expression.target.right instanceof FlyFunctionCall) {
 			var s = ""
 			s += "for(Future _el :" + last_func_result + "){
 						_el." + expression.feature + "("
 			for (exp : expression.expressions) {
-				s += generateArithmeticExpression(exp)
+				s += generateArithmeticExpression(exp, scope)
 				if (exp != expression.expressions.last()) {
 					s += ","
 				}
@@ -569,7 +582,7 @@ class FLYGenerator extends AbstractGenerator {
 		} else {
 			var s = expression.target.name + "." + expression.feature + "("
 			for (exp : expression.expressions) {
-				s += generateArithmeticExpression(exp)
+				s += generateArithmeticExpression(exp, scope)
 				if (exp != expression.expressions.last()) {
 					s += ","
 				}
@@ -583,27 +596,27 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	// methods for statement
-	def generateBlockExpression(BlockExpression exp) {
+	def generateBlockExpression(BlockExpression exp, String scope) {
 		'''
 			{
 				«FOR element : exp.expressions» 
-					«generateExpression(element)»
+					«generateExpression(element,scope)»
 				«ENDFOR» 
 			}
 		'''
 	}
 
-	def generateFunctionReturn(FunctionReturn return1) {
+	def generateFunctionReturn(FunctionReturn return1, String scope) {
 		'''
-			return «generateArithmeticExpression(return1.expression)»;
+			return «generateArithmeticExpression(return1.expression,scope)»;
 		'''
 	}
 
-	def generateLocalFunctionCall(LocalFunctionCall call) {
+	def generateLocalFunctionCall(LocalFunctionCall call, String scope) {
 		var s = call.target.name + "("
 		if (call.input != null) {
 			for (input : call.input.inputs) {
-				s += generateArithmeticExpression(input)
+				s += generateArithmeticExpression(input, scope)
 				if (input != call.input.inputs.last) {
 					s += ","
 				}
@@ -613,17 +626,17 @@ class FLYGenerator extends AbstractGenerator {
 		return s
 	}
 
-	def generateFlyFunctionCall(FlyFunctionCall call) {
+	def generateFlyFunctionCall(FlyFunctionCall call, String scope) {
 		var env = ((call.environment.right as DeclarationObject).features.get(0)).value_s
 		if (env.equals("local")) {
-			return generateLocalFlyFunction(call)
+			return generateLocalFlyFunction(call, scope)
 		} else if (env.equals("aws")) {
-			return generateAWSFlyFunctionCall(call)
+			return generateAWSFlyFunctionCall(call, scope)
 		}
 
 	}
 
-	def generateLocalFlyFunction(FlyFunctionCall call) {
+	def generateLocalFlyFunction(FlyFunctionCall call, String scope) {
 		var s = ''''''
 		if ((call.input as FunctionInput).is_for_index) { // 'for 'keyword 
 			s = '''
@@ -636,17 +649,18 @@ class FLYGenerator extends AbstractGenerator {
 			}
 
 			if ((call.input as FunctionInput).f_index instanceof VariableLiteral &&
-				memory.get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) != null &&
-				memory.get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).equals(
-					"HashMap")) { // f_index is a reference to an object
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) !=
+					null &&
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
+					equals("HashMap")) { // f_index is a reference to an object
 				if (call.isIsAsync && call.isIs_thenall) {
 					s += '''
-						final int __numThread = «generateArithmeticExpression((call.input as FunctionInput).f_index)».keySet().size()-1;
+						final int __numThread = «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».keySet().size()-1;
 					'''
 				}
 				s += '''
-					for(Object key: «generateArithmeticExpression((call.input as FunctionInput).f_index)».keySet()){
-						final Object _el = «generateArithmeticExpression((call.input as FunctionInput).f_index)».get(key);
+					for(Object key: «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».keySet()){
+						final Object _el = «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».get(key);
 						Future<Object> _f = thread_pool.submit(new Callable<Object>(){
 							
 							public Object call() throws Exception {
@@ -668,8 +682,10 @@ class FLYGenerator extends AbstractGenerator {
 					}
 				'''
 			} else if ((call.input as FunctionInput).f_index instanceof VariableLiteral &&
-				memory.get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) != null &&
-				memory.get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).equals("Table")) { // f_index is a reference to a Table
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) !=
+					null &&
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
+					equals("Table")) { // f_index is a reference to a Table
 			// if (call.isIsAsync && call.isIs_thenall) {
 			// //modify with the number of processor or the limit of «generateArithmeticExpression((call.input as FunctionInput).f_index)».rowCount() * «generateArithmeticExpression((call.input as FunctionInput).f_index)».columns().size();
 				s += '''
@@ -702,23 +718,25 @@ class FLYGenerator extends AbstractGenerator {
 //					}
 //				'''
 				s += '''
-					final ArrayList<HashMap<Integer, HashMap<String,Object>>> __list_data_«call.target.name» = new ArrayList<HashMap<Integer, HashMap<String,Object>>>();
+					ArrayList<Table> __list_data_«call.target.name» = new ArrayList<Table>();
 					for (int __i = 0; __i < __numThread; __i++) {
-						__list_data_«call.target.name».add(new HashMap<Integer, HashMap<String,Object>>());
+						__list_data_«call.target.name».add(«((call.input as FunctionInput).f_index as VariableLiteral).variable.name».emptyCopy());
 					}
-					for(int __i=0; __i<«generateArithmeticExpression((call.input as FunctionInput).f_index)».rowCount();__i++) {
-						HashMap<String, Object> __tmp = new HashMap<String, Object>();
-						for (String __col : «generateArithmeticExpression((call.input as FunctionInput).f_index)».columnNames()) {
-							__tmp.put(__col,«generateArithmeticExpression((call.input as FunctionInput).f_index)».get(__i, «generateArithmeticExpression((call.input as FunctionInput).f_index)».columnIndex(__col)));
-						}
-						__list_data_«call.target.name».get(__i%__numThread).put(__i, __tmp);
+					for(int __i=0; __i<«generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».rowCount();__i++) {
+						__list_data_«call.target.name».get(__i%__numThread).addRow(__i,«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
+«««						HashMap<String, Object> __tmp = new HashMap<String, Object>();
+«««						for (String __col : «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».columnNames()) {
+«««							__tmp.put(__col,«generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».get(__i, «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».columnIndex(__col)));
+«««						}
+«««						__list_data_«call.target.name».get(__i%__numThread).put(__i, __tmp);
 					}
 					for(int __i=0; __i<__numThread;__i++) {
 					    final int __index=__i;
+					    final Table __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» =__list_data_«call.target.name».get(__index) ; 
 					    Future<Object> __f = thread_pool.submit(new Callable<Object>() {
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
-								Object __ret = «call.target.name»();
+								Object __ret = «call.target.name»(__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
 								«IF call.isIs_then»
 									«call.then.name»();
 								«ENDIF»  		
@@ -748,7 +766,7 @@ class FLYGenerator extends AbstractGenerator {
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								
-								Object __ret = «call.target.name»();
+								Object __ret = «call.target.name»(__i);
 								«IF call.isIs_then»
 									«call.then.name»();
 								«ENDIF»
@@ -794,7 +812,6 @@ class FLYGenerator extends AbstractGenerator {
 «««										e.printStackTrace();
 «««									}
 «««							}
-
 										__asyncTermination.take();	
 										«call.thenall.name»();
 								return null;
@@ -812,7 +829,7 @@ class FLYGenerator extends AbstractGenerator {
 			''' // passing parameter 
 			for (el : call.input.expressions) {
 				par_1 += '''
-					final Object _par_«par_id» = «generateArithmeticExpression(el)»;
+					final Object _par_«par_id» = «generateArithmeticExpression(el,scope)»;
 				'''
 				par_2 += ''' _par_«par_id»	'''
 				if (el != call.input.expressions.last) {
@@ -848,28 +865,23 @@ class FLYGenerator extends AbstractGenerator {
 		return s
 	}
 
-	def generateAWSFlyFunctionCall(FlyFunctionCall call) {
+	def generateAWSFlyFunctionCall(FlyFunctionCall call, String scope) {
 		// generate the aws lambda function
 		var cred = call.environment.name
 		var region = ((call.environment.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
 		var function = call.target.name
 		var ret = '''
-			//create the AWS SNS 
-			final AmazonSNS __sns = AmazonSNSClient.builder()
-				.withRegion("«region»")
-				.withCredentials(new AWSStaticCredentialsProvider(«cred»))
-				.build();
-			
-			//create the topic to publish the input for lambda function
-			CreateTopicRequest __createTopicRequest = new CreateTopicRequest("«function»_simulation_input");
-			CreateTopicResult __createTopicResult = __sns.createTopic(__createTopicRequest);
-			final String __topicArn = __createTopicResult.getTopicArn();
-						
-			// AWS IAM
-			AmazonIdentityManagement __iam = AmazonIdentityManagementClientBuilder.standard()
-				.withCredentials(new AWSStaticCredentialsProvider(«cred»))
-				.withRegion("«region»")
-				.build();
+«««			//create the AWS SNS 
+«««			final AmazonSNS __sns = AmazonSNSClient.builder()
+«««				.withRegion("«region»")
+«««				.withCredentials(new AWSStaticCredentialsProvider(«cred»))
+«««				.build();
+«««			
+«««			//create the topic to publish the input for lambda function
+«««			CreateTopicRequest __createTopicRequest = new CreateTopicRequest("«function»_simulation_input");
+«««			CreateTopicResult __createTopicResult = __sns.createTopic(__createTopicRequest);
+«««			final String __topicArn = __createTopicResult.getTopicArn();
+«««						
 						
 			//create the policy for the lambda function
 			final String __POLICY_DOCUMENT =		"{" +
@@ -922,15 +934,15 @@ class FLYGenerator extends AbstractGenerator {
 					__iam.putRolePolicy(__putRolePolicyRequest);
 								
 					««« String __body=«generateBodyJs(call.target.body,call.target.name)»;
-					try {
-						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
-						__out.write(__body);
-						__out.close();
-					
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
+«««					try {
+«««						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
+«««						__out.write(__body);
+«««						__out.close();
+«««					
+«««					} catch (IOException e) {
+«««						// TODO Auto-generated catch block
+«««						e.printStackTrace();
+«««					}
 					String __sourceFile = "«call.target.name».js";
 					FileOutputStream __fos = new FileOutputStream("«call.target.name».zip");
 					ZipOutputStream __zipOut = new ZipOutputStream(__fos);
@@ -959,11 +971,7 @@ class FLYGenerator extends AbstractGenerator {
 					} catch (final IOException iox) {
 						throw new RuntimeException("cannot load zip", iox);
 					}
-					AWSLambda __lambda = AWSLambdaClientBuilder.standard()
-						.withCredentials(new AWSStaticCredentialsProvider(«call.environment.name»))
-						.withRegion("«((call.environment.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»")
-						.build();
-					
+										
 					GetRoleRequest __getRoleRequest = new GetRoleRequest().withRoleName(__roleResult.getRole().getRoleName());
 					GetRoleResult __getRoleResult = __iam.getRole(__getRoleRequest);
 							
@@ -1016,14 +1024,16 @@ class FLYGenerator extends AbstractGenerator {
 						});
 					}
 				'''
-			} else if(call.input.f_index instanceof VariableLiteral && memory.get((call.input.f_index as VariableLiteral).variable.name).equals("Table")){
-				
+			} else if (call.input.f_index instanceof VariableLiteral &&
+				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
+				 ret+='''
+				 '''
 			}
 		}
 		// manage the callback
 		if (call.isIs_thenall) {
 			ret += '''
-				«call.thenall.name»(null);
+				«call.thenall.name»();
 			'''
 		}
 		// clean the aws environtment
@@ -1040,7 +1050,7 @@ class FLYGenerator extends AbstractGenerator {
 		return ret
 	}
 
-	def generateChannelReceive(ChannelReceive receive) {
+	def generateChannelReceive(ChannelReceive receive, String scope) {
 		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
 			value_s
 		if (env.equals("local")) {
@@ -1056,50 +1066,51 @@ class FLYGenerator extends AbstractGenerator {
 
 	}
 
-	def generateChannelSend(ChannelSend send) {
+	def generateChannelSend(ChannelSend send, String scope) {
 		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
 		if (env.equals("local")) {
-			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression)»)'''
+			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
-				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»").getQueueUrl(), «generateArithmeticExpression(send.expression)»);
+				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»").getQueueUrl(), «generateArithmeticExpression(send.expression,scope)»);
 				__sqs.sendMessage(__sndmsg)
 			'''
 		}
 
 	}
 
-	def generateWhileExpression(WhileExpression expression) {
+	def generateWhileExpression(WhileExpression expression, String scope) {
 		'''
-			while(«generateArithmeticExpression(expression.cond)»)
-				«generateExpression(expression.body)»
+			while(«generateArithmeticExpression(expression.cond,scope)»)
+				«generateExpression(expression.body,scope)»
 		'''
 	}
 
-	def generateForExpression(ForExpression exp) {
+	def generateForExpression(ForExpression exp, String scope) {
 		if (exp.object instanceof ParenthesizedExpression) {
-			return generateFor(exp.index, (exp.object as ParenthesizedExpression).expression, exp.body)
+			return generateFor(exp.index, (exp.object as ParenthesizedExpression).expression, exp.body, scope)
 		} else {
-			return generateFor(exp.index, exp.object, exp.body)
+			return generateFor(exp.index, exp.object, exp.body, scope)
 		}
 
 	}
 
-	def generateFor(VariableFor index, ArithmeticExpression object, Expression body) {
+	def generateFor(VariableFor index, ArithmeticExpression object, Expression body, String scope) {
 		if (object instanceof CastExpression) {
 			if ((object as CastExpression).type.equals("Dat")) { // dat
+				var name = ((object as CastExpression).target as VariableLiteral).variable.name
 				return '''
-					for(int _i=0; _i<((Table) «((object as CastExpression).target as VariableLiteral).variable.name»).rowCount();_i++){
+					for(int _«name»=0; _«name»<((Table) «name»).rowCount();_«name»++){
 						HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-						for(String _column:((Table) «((object as CastExpression).target as VariableLiteral).variable.name»).columnNames()){
-							«(index as VariableDeclaration).name».put(_column,«((object as CastExpression).target as VariableLiteral).variable.name».get(_i,«((object as CastExpression).target as VariableLiteral).variable.name».columnIndex(_column)));
+						for(String _column:((Table) «name»).columnNames()){
+							«(index as VariableDeclaration).name».put(_column,«name».get(_«name»,«name».columnIndex(_column)));
 						}
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
-								«generateExpression(exp)»
+								«generateExpression(exp,scope)»
 							«ENDFOR»
 						«ELSE»
-							«generateExpression(body)»
+							«generateExpression(body,scope)»
 						«ENDIF»
 					}
 				'''
@@ -1128,10 +1139,10 @@ class FLYGenerator extends AbstractGenerator {
 							«(index as VariableDeclaration).name».put("v",((HashMap<Object,Object>) «((object as CastExpression).target as VariableLiteral).variable.name»).get(_«(index as VariableDeclaration).name»));
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
-								«generateExpression(exp)»
+								«generateExpression(exp,scope)»
 							«ENDFOR»
 						«ELSE»
-							«generateExpression(body)»
+							«generateExpression(body,scope)»
 						«ENDIF»
 					}
 				'''
@@ -1140,14 +1151,14 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (object instanceof RangeLiteral) {
 			return '''
 				for(int «(index as VariableDeclaration).name»=«object.value1»;«(index as VariableDeclaration).name»<«object.value2»;«(index as VariableDeclaration).name»++){
-					«generateExpression(body)»
+					«generateExpression(body,scope)»
 				}
 			'''
 		} else if (object instanceof VariableLiteral) {
-			println((object as VariableLiteral).variable)
+			//println((object as VariableLiteral).variable)
 			if (((object as VariableLiteral).variable.typeobject.equals('var') &&
 				((object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
-				memory.get((object as VariableLiteral).variable.name).equals("HashMap")) {
+				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("HashMap")) {
 				return '''
 					HashMap<Object, Object> «(index as VariableDeclaration).name» = new HashMap<Object,Object>();
 					for(Object _«(index as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».keySet() ){
@@ -1155,27 +1166,28 @@ class FLYGenerator extends AbstractGenerator {
 							«(index as VariableDeclaration).name».put("v",«(object as VariableLiteral).variable.name».get(_«(index as VariableDeclaration).name»));
 							«IF body instanceof BlockExpression»
 								«FOR exp : body.expressions »
-									«generateExpression(exp)»
+									«generateExpression(exp,scope)»
 								«ENDFOR»
 							«ELSE»
-								«generateExpression(body)»
+								«generateExpression(body,scope)»
 							«ENDIF»
 					}
 				'''
 			} else if ((object as VariableLiteral).variable.typeobject.equals('dat') ||
-				memory.get((object as VariableLiteral).variable.name).equals("Table")) {
+				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")) {
+				var name = (object as VariableLiteral).variable.name;
 				return '''
-					for(int _i=0; _i< «(object as VariableLiteral).variable.name».rowCount();_i++){
+					for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
 						HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-						for(String _column:«(object as VariableLiteral).variable.name».columnNames()){
-							«(index as VariableDeclaration).name».put(_column,«(object as VariableLiteral).variable.name».get(_i,«(object as VariableLiteral).variable.name».columnIndex(_column)));
+						for(String _column:«name».columnNames()){
+							«(index as VariableDeclaration).name».put(_column,«name».get(_«name»,«name».columnIndex(_column)));
 						}
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
-								«generateExpression(exp)»
+								«generateExpression(exp,scope)»
 							«ENDFOR»
 						«ELSE»
-							«generateExpression(body)»
+							«generateExpression(body,scope)»
 						«ENDIF»
 					}
 				'''
@@ -1200,43 +1212,43 @@ class FLYGenerator extends AbstractGenerator {
 			}
 		} else if (object instanceof VariableFunction) {
 			return '''
-			«generateVariableFunction(object as VariableFunction,false)»
+			«generateVariableFunction(object as VariableFunction,false,scope)»
 			for(HashMap<String,Object> «(index as VariableDeclaration).name» : __«(object as VariableFunction).target.name»_rows.values()){
 				«IF body instanceof BlockExpression»
 					«FOR exp : body.expressions »
-						«generateExpression(exp)»
+						«generateExpression(exp,scope)»
 					«ENDFOR»
 				«ELSE»
-					«generateExpression(body)»
+					«generateExpression(body,scope)»
 				«ENDIF»
 			}'''
 		}
 	}
 
-	def generateIfExpression(IfExpression expression) {
+	def generateIfExpression(IfExpression expression, String scope) {
 		'''
-			if(«generateArithmeticExpression(expression.cond)»)
-				«generateExpression(expression.then)»
+			if(«generateArithmeticExpression(expression.cond,scope)»)
+				«generateExpression(expression.then,scope)»
 				«IF expression.^else !== null»
-					else «generateExpression(expression.^else)»
+					else «generateExpression(expression.^else,scope)»
 				«ENDIF»
 		'''
 	}
 
-	def generatePrintExpression(PrintExpression expression) {
+	def generatePrintExpression(PrintExpression expression, String scope) {
 		if (expression.print instanceof ChannelReceive) {
 			return '''
 				try{
-					System.out.println(«generateArithmeticExpression(expression.print)»);
+					System.out.println(«generateArithmeticExpression(expression.print,scope)»);
 				}catch(Exception e){
 					e.printStackTrace();
 				}
 			'''
 		} else
-			return '''System.out.println(«generateArithmeticExpression(expression.print)»);'''
+			return '''System.out.println(«generateArithmeticExpression(expression.print,scope)»);'''
 	}
 
-	def generateAssignment(Assignment assignment) {
+	def generateAssignment(Assignment assignment, String scope) {
 		if (assignment.feature != null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
@@ -1246,14 +1258,14 @@ class FLYGenerator extends AbstractGenerator {
 						return '''
 							ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl());
 							ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-							«generateArithmeticExpression(assignment.feature)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
 							__sqs.deleteMessage(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
 							ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl());
 							ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-							«generateArithmeticExpression(assignment.feature)» «assignment.op» Double.parseDouble(__res.getMessages().get(0).getBody());
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble(__res.getMessages().get(0).getBody());
 							__sqs.deleteMessage(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 						'''
 					}
@@ -1261,7 +1273,7 @@ class FLYGenerator extends AbstractGenerator {
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
 							try{
-								«generateArithmeticExpression(assignment.feature)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
+								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
 							}catch(InterruptedException e1){
 								e1.printStackTrace();
 							}
@@ -1269,7 +1281,7 @@ class FLYGenerator extends AbstractGenerator {
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
 							try{
-								«generateArithmeticExpression(assignment.feature)» «assignment.op» Double.parseDouble(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
+								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
 								e1.printStackTrace();
 							}
 						'''
@@ -1283,13 +1295,13 @@ class FLYGenerator extends AbstractGenerator {
 					return '''
 						ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl());
 						ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-						«generateArithmeticExpression(assignment.feature)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
+						«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
 						__sqs.deleteMessage(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 					'''
 				} else { // local environment
 					return '''
 						try{
-							«generateArithmeticExpression(assignment.feature)» «assignment.op» «generateArithmeticExpression(assignment.value as ChannelReceive)»
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» «generateArithmeticExpression(assignment.value as ChannelReceive,scope)»
 						}catch(InterruptedException e1){
 							e1.printStackTrace();
 						}
@@ -1297,32 +1309,36 @@ class FLYGenerator extends AbstractGenerator {
 				}
 			} else {
 				return '''
-					«generateArithmeticExpression(assignment.feature)» «assignment.op» «generateArithmeticExpression(assignment.value)»;
+					«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» «generateArithmeticExpression(assignment.value,scope)»;
 				'''
 			}
 		}
 		if (assignment.feature_obj !== null) {
 			if (assignment.feature_obj instanceof NameObject) {
-				memory.put(((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
-					(assignment.feature_obj as NameObject).value, valuateArithmeticExpression(assignment.value))
+				typeSystem.get(scope).put(
+					((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
+						(assignment.feature_obj as NameObject).value,
+					valuateArithmeticExpression(assignment.value, scope))
 				return '''
-					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name».put("«(assignment.feature_obj as NameObject).value»",«generateArithmeticExpression(assignment.value)»);
+					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name».put("«(assignment.feature_obj as NameObject).value»",«generateArithmeticExpression(assignment.value,scope)»);
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
 				if ((assignment.feature_obj as IndexObject).value != null) {
-					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-						(assignment.feature_obj as IndexObject).value.name + "]",
-						valuateArithmeticExpression(assignment.value))
+					typeSystem.get(scope).put(
+						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
+							(assignment.feature_obj as IndexObject).value.name + "]",
+						valuateArithmeticExpression(assignment.value, scope))
 					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put(«(assignment.feature_obj as IndexObject).value.name»,«generateArithmeticExpression(assignment.value)»);
+						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put(«(assignment.feature_obj as IndexObject).value.name»,«generateArithmeticExpression(assignment.value,scope)»);
 					'''
 				} else {
-					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-						(assignment.feature_obj as IndexObject).valuet + "]",
-						valuateArithmeticExpression(assignment.value))
+					typeSystem.get(scope).put(
+						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
+							(assignment.feature_obj as IndexObject).valuet + "]",
+						valuateArithmeticExpression(assignment.value, scope))
 					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put("«(assignment.feature_obj as IndexObject).valuet»",«generateArithmeticExpression(assignment.value)»);
+						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put("«(assignment.feature_obj as IndexObject).valuet»",«generateArithmeticExpression(assignment.value,scope)»);
 					'''
 				}
 			}
@@ -1330,53 +1346,115 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateFunctionDefinition(FunctionDefinition definition) {
-		'''
-			protected static Object «definition.name»(«FOR params : definition.parameters»«getParameterType(params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+		typeSystem.put(definition.name, new HashMap<String, String>())
+		var s = '''
+			
+				protected static Object «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
 				«FOR el : definition.body.expressions»
-					«generateExpression(el)»
+				«generateExpression(el,definition.name)»
 				«ENDFOR»
 				«IF !checkReturn(definition.body)»
-					return null;
+				return null;
 				«ENDIF»
-			}
+				}
 		'''
+		return s
 	}
-	
-	//utility: get the type of parameter
-	def getParameterType(Expression param,int pos){
-		for(exp :res.allContents.toIterable.filter(Expression)){
-			if(exp instanceof LocalFunctionCall){
-				var typeobject = valuateArithmeticExpression((exp.input as LocalFunctionInput).inputs.get(pos))
-				if(typeobject == "Table")
+
+	def getParameterType(String name, Expression param, int pos) {
+
+		for (exp : res.allContents.toIterable.filter(Expression)) {
+			if (exp instanceof LocalFunctionCall && ((exp as LocalFunctionCall).target.name == name)) {
+				var typeobject = valuateArithmeticExpression(
+					((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(pos), "main")
+				if (typeobject == "Table") {
 					(param as VariableDeclaration).typeobject = "dat"
-				else
+					typeSystem.get(name).put((param as VariableDeclaration).name, "Table");
+				} else {
 					(param as VariableDeclaration).typeobject = "var"
+					if (typeobject == "HashMap") {
+						typeSystem.get(name).put((param as VariableDeclaration).name, "HashMap");
+						//println(typeSystem.get(name))
+						for (String key : typeSystem.get("main").keySet()) {
+							if (key.contains(
+								(((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(
+									pos) as VariableLiteral).variable.name + ".")) {
+								//println(key.indexOf("."))
+								var tmp = key.substring(key.indexOf(".") + 1, key.length);
+								typeSystem.get(name).put((param as VariableDeclaration).name + "." + tmp,
+									typeSystem.get("main").get(key));
+							}
+						}
+					} else {
+						typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
+
+					}
+				}
 				return typeobject
-			}else if(exp instanceof FlyFunctionCall){
-				if (exp.input.isIs_for_index){
-					if( exp.input.f_index instanceof RangeLiteral)
+			} else if (exp instanceof FlyFunctionCall && ((exp as FlyFunctionCall).target.name == name)) {
+				if ((exp as FlyFunctionCall).input.isIs_for_index) {
+					if ((exp as FlyFunctionCall).input.f_index instanceof RangeLiteral)
 						return "Integer"
-					else if (exp.input.f_index instanceof VariableLiteral){
-						var typeobject = valuateArithmeticExpression(exp.input.f_index as VariableLiteral);
-						if( typeobject == "Table")
+					else if ((exp as FlyFunctionCall).input.f_index instanceof VariableLiteral) {
+						var typeobject = valuateArithmeticExpression(
+							(exp as FlyFunctionCall).input.f_index as VariableLiteral, "main");
+						if (typeobject == "Table") {
 							(param as VariableDeclaration).typeobject = "dat"
-						else 
+							typeSystem.get(name).put((param as VariableDeclaration).name, "Table");
+
+						} else {
 							(param as VariableDeclaration).typeobject = "var"
+							if (typeobject == "HashMap") {
+								typeSystem.get(name).put((param as VariableDeclaration).name, "HashMap");
+								for (String key : typeSystem.get("main").keySet()) {
+									if (key.contains(
+										(((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(
+											pos) as VariableLiteral).variable.name + ".")) {
+										//println(key.indexOf("."))
+										var tmp = key.substring(key.indexOf(".") + 1, key.length);
+										typeSystem.get(name).put((param as VariableDeclaration).name + "." + tmp,
+											typeSystem.get("main").get(key));
+									}
+								}
+							} else {
+								typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
+							}
+
+						}
 						return typeobject
 					}
-				}else{
-					var typeobject = valuateArithmeticExpression((exp.input as FunctionInput).expressions.get(pos));
-					if( typeobject == "Table")
+				} else {
+					var typeobject = valuateArithmeticExpression(
+						((exp as FlyFunctionCall).input as FunctionInput).expressions.get(pos), "main");
+					if (typeobject == "Table") {
 						(param as VariableDeclaration).typeobject = "dat"
-					else 
+						typeSystem.get(name).put((param as VariableDeclaration).name, "Table");
+					} else {
 						(param as VariableDeclaration).typeobject = "var"
+						if (typeobject == "HashMap") {
+							typeSystem.get(name).put((param as VariableDeclaration).name, "HashMap");
+							for (String key : typeSystem.get("main").keySet()) {
+								if (key.contains(
+									(((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(
+										pos) as VariableLiteral).variable.name + ".")) {
+									//println(key.indexOf("."))
+									var tmp = key.substring(key.indexOf(".") + 1, key.length);
+									typeSystem.get(name).put((param as VariableDeclaration).name + "." + tmp,
+										typeSystem.get("main").get(key));
+								}
+							}
+						} else {
+							typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
+
+						}
+					}
 					return typeobject
 				}
 			}
 		}
 	}
-	
-	def String valuateArithmeticExpression(ArithmeticExpression exp) {
+
+	def String valuateArithmeticExpression(ArithmeticExpression exp, String scope) {
 		if (exp instanceof NumberLiteral) {
 			return "Integer"
 		} else if (exp instanceof BooleanLiteral) {
@@ -1395,25 +1473,29 @@ class FLYGenerator extends AbstractGenerator {
 				if (variable.right instanceof NameObjectDef) {
 					return "HashMap"
 				} else if (variable.right instanceof ArithmeticExpression) {
-					return valuateArithmeticExpression(variable.right as ArithmeticExpression)
+					return valuateArithmeticExpression(variable.right as ArithmeticExpression, scope)
+				}else{
+					return typeSystem.get(scope).get(variable.name) // if it's a parameter of a FunctionDefinition
 				}
 			}
 			return "variable"
 		} else if (exp instanceof NameObject) {
-			return memory.get(exp.name.name + "." + exp.value)
+			return typeSystem.get(scope).get(exp.name.name + "." + exp.value)
 		} else if (exp instanceof IndexObject) {
-			return memory.get(exp.name.name + "[" + exp.valuet + "]")
+			return typeSystem.get(scope).get(exp.name.name + "[" + exp.valuet + "]")
 		} else if (exp instanceof DatTableObject) {
 			return "Table"
 		}
 		if (exp instanceof UnaryOperation) {
 			if (exp.feature.equals("!"))
 				return "Boolean"
-			return valuateArithmeticExpression(exp.operand)
+			return valuateArithmeticExpression(exp.operand, scope)
 		}
 		if (exp instanceof BinaryOperation) {
-			var left = valuateArithmeticExpression(exp.left)
-			var right = valuateArithmeticExpression(exp.right)
+			var left = valuateArithmeticExpression(exp.left, scope)
+			var right = valuateArithmeticExpression(exp.right, scope)
+			//println("leftType: "+left)
+			//println("rightType: "+right)
 			if (exp.feature.equals("+") || exp.feature.equals("-") || exp.feature.equals("*") ||
 				exp.feature.equals("/")) {
 				if (left.equals("String") || right.equals("String"))
@@ -1425,7 +1507,7 @@ class FLYGenerator extends AbstractGenerator {
 			} else
 				return "Boolean"
 		} else if (exp instanceof PostfixOperation) {
-			return valuateArithmeticExpression(exp.operand)
+			return valuateArithmeticExpression(exp.operand, scope)
 		} else if (exp instanceof CastExpression) {
 			if (exp.type.equals("Object")) {
 				return "HashMap"
@@ -1446,14 +1528,14 @@ class FLYGenerator extends AbstractGenerator {
 				return "LocalDate"
 			}
 		} else if (exp instanceof ParenthesizedExpression) {
-			return valuateArithmeticExpression(exp.expression)
+			return valuateArithmeticExpression(exp.expression, scope)
 		}
 		if (exp instanceof MathFunction) {
 			if (exp.feature.equals("round")) {
 				return "Integer"
 			} else {
 				for (el : exp.expressions) {
-					if (valuateArithmeticExpression(el).equals("Double")) {
+					if (valuateArithmeticExpression(el, scope).equals("Double")) {
 						return "Double"
 					}
 				}
@@ -1526,29 +1608,27 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	// ----------------------------- GENERATE JavaScript CODE -----------------------------------
-	
-	def CharSequence compileJS(Resource resource,FunctionDefinition func,String env)'''
+	def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
 		«generateBodyJs(func.body,func.name,env)»
 	'''
-	
-	
-	def generateBodyJs(BlockExpression exps,String name,String env) {
-	'''
-		«IF env == "aws"»
-			var AWS = require('aws-sdk');
-			var sqs = new AWS.SQS();
-		«ENDIF»
-		var dataframe = require('dataframe-js').DataFrame
-		
-		exports.handler = async function(context,event){
-			«FOR exp : exps.expressions»
-				«generateJsExpression(exp)»
-			«ENDFOR»
-		}
+
+	def generateBodyJs(BlockExpression exps, String name, String env) {
+		'''
+			«IF env == "aws"»
+				var AWS = require('aws-sdk');
+				var sqs = new AWS.SQS();
+			«ENDIF»
+			var dataframe = require('dataframe-js').DataFrame
+			
+			exports.handler = async function(context,event){
+				«FOR exp : exps.expressions»
+					«generateJsExpression(exp,name)»
+				«ENDFOR»
+			}
 		'''
 	}
 
-	def generateJsExpression(Expression exp) {
+	def generateJsExpression(Expression exp, String scope) {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
@@ -1575,34 +1655,35 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
-				if(exp.right instanceof NameObjectDef){
-					memory.put(exp.name, "HashMap")
-				 s += '''var «exp.name» = {'''
-				var i = 0;
-				for (f : (exp.right as NameObjectDef).features) {
-					if (f.feature != null) {
-						memory.put(exp.name + "." + f.feature, valuateArithmeticExpression(f.value))
-						s = s + '''«f.feature»:«generateJsArithmeticExpression(f.value)»'''
-					} else {
-						memory.put(exp.name + "[" + i + "]", valuateArithmeticExpression(f.value))
-						s = s + '''«i»:«generateJsArithmeticExpression(f.value)»'''
-						i++
+				if (exp.right instanceof NameObjectDef) {
+					typeSystem.get(scope).put(exp.name, "HashMap")
+					s += '''var «exp.name» = {'''
+					var i = 0;
+					for (f : (exp.right as NameObjectDef).features) {
+						if (f.feature != null) {
+							typeSystem.get(scope).put(exp.name + "." + f.feature,
+								valuateArithmeticExpression(f.value, scope))
+							s = s + '''«f.feature»:«generateJsArithmeticExpression(f.value)»'''
+						} else {
+							typeSystem.get(scope).put(exp.name + "[" + i + "]",
+								valuateArithmeticExpression(f.value, scope))
+							s = s + '''«i»:«generateJsArithmeticExpression(f.value)»'''
+							i++
+						}
+						if (f != (exp.right as NameObjectDef).features.last) {
+							s += ''','''
+						}
 					}
-					if(f!=(exp.right as NameObjectDef).features.last){
-						s += ''','''
-					}
+					s += '''}'''
+
+				} else {
+					s += '''
+						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression)»;
+					'''
 				}
-				s+='''}'''
-				
-			} else{
-				s += '''
-					var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression)»;
-				'''
-			}
-			
-			}else
-			if (exp.typeobject.equals("dat")) {
-				memory.put(exp.name,"Table")
+
+			} else if (exp.typeobject.equals("dat")) {
+				typeSystem.get(scope).put(exp.name, "Table")
 				s += '''
 					var «exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
 				'''
@@ -1610,39 +1691,38 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof IfExpression) {
 			s += '''
 				if(«generateJsArithmeticExpression(exp.cond)»)
-					«generateJsExpression(exp.then)» 
+					«generateJsExpression(exp.then,scope)» 
 				«IF exp.^else != null»
-				else
-					«generateJsExpression(exp.^else)»
+					else
+						«generateJsExpression(exp.^else,scope)»
 				«ENDIF»
 			'''
 		} else if (exp instanceof ForExpression) {
 			s += '''
-				«generateJsForExpression(exp)»
+				«generateJsForExpression(exp,scope)»
 			'''
 		} else if (exp instanceof WhileExpression) {
 			s += '''
-				«generateJsWhileExpression(exp)»
+				«generateJsWhileExpression(exp,scope)»
 			'''
 		} else if (exp instanceof BlockExpression) {
-			s += 
-			'''
-				«generateJsBlockExpression(exp)»
+			s += '''
+				«generateJsBlockExpression(exp,scope)»
 			'''
 		} else if (exp instanceof Assignment) {
-			s+='''
-				«generateJsAssignmentExpression(exp)»
+			s += '''
+				«generateJsAssignmentExpression(exp,scope)»
 			'''
-		} else if (exp instanceof PrintExpression){
-			s+='''
+		} else if (exp instanceof PrintExpression) {
+			s += '''
 				console.log(«generateJsArithmeticExpression(exp.print)») 
 			'''
 		}
 		return s
 	}
 
-	def generateJsAssignmentExpression(Assignment assignment){
-	if (assignment.feature != null) {
+	def generateJsAssignmentExpression(Assignment assignment, String scope) {
+		if (assignment.feature != null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
@@ -1687,61 +1767,67 @@ class FLYGenerator extends AbstractGenerator {
 		}
 		if (assignment.feature_obj !== null) {
 			if (assignment.feature_obj instanceof NameObject) {
-				memory.put(((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
-					(assignment.feature_obj as NameObject).value, valuateArithmeticExpression(assignment.value))
+				typeSystem.get(scope).put(
+					((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
+						(assignment.feature_obj as NameObject).value,
+					valuateArithmeticExpression(assignment.value, scope))
 				return '''
 					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»[\"«(assignment.feature_obj as NameObject).value»\"] = «generateJsArithmeticExpression(assignment.value)» 
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
 				if ((assignment.feature_obj as IndexObject).value != null) {
-					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" + (assignment.feature_obj as IndexObject).value.name + "]", valuateArithmeticExpression(assignment.value))
+					typeSystem.get(scope).put(
+						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
+							(assignment.feature_obj as IndexObject).value.name + "]",
+						valuateArithmeticExpression(assignment.value, scope))
 					return '''
 						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).value.name»] = «generateJsArithmeticExpression(assignment.value)» 
 					'''
 				} else {
-					memory.put(((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-						(assignment.feature_obj as IndexObject).valuet + "]",
-						valuateArithmeticExpression(assignment.value))
+					typeSystem.get(scope).put(
+						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
+							(assignment.feature_obj as IndexObject).valuet + "]",
+						valuateArithmeticExpression(assignment.value, scope))
 					return '''
 						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).valuet»] = «generateJsArithmeticExpression(assignment.value)» 
 					'''
 				}
 			}
-		}	
+		}
 	}
-	
-	def generateJsWhileExpression(WhileExpression exp) {
+
+	def generateJsWhileExpression(WhileExpression exp, String scope) {
 		'''
 			while(«generateJsArithmeticExpression(exp.cond)»)
-				«generateJsExpression(exp.body)»
+				«generateJsExpression(exp.body,scope)»
 		'''
 	}
 
-	def generateJsForExpression(ForExpression exp) {
+	def generateJsForExpression(ForExpression exp, String scope) {
 		if (exp.object instanceof CastExpression) {
-			if((exp.object as CastExpression).type.equals("Dat")){
+			if ((exp.object as CastExpression).type.equals("Dat")) {
 				return '''
-				«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){
-				«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-						«generateJsExpression(e)»
-					«ENDFOR»
-				«ELSE»
-					«generateJsExpression(exp.body)»
-				«ENDIF»
-				})
+					«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){
+					«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+							«generateJsExpression(e,scope)»
+						«ENDFOR»
+					«ELSE»
+						«generateJsExpression(exp.body,scope)»
+					«ENDIF»
+					})
 				'''
-			}else if((exp.object as CastExpression).type.equals("Object")){
+			} else if ((exp.object as CastExpression).type.equals("Object")) {
 				return '''
-					for(__key in « ((exp.object as CastExpression).target as VariableLiteral).variable.name » ){
+					for(__key in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
 						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«((exp.object as CastExpression).target as VariableLiteral).variable.name»[__key]} 
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
-							«generateJsExpression(e)»
+								«generateJsExpression(e,scope)»
 							«ENDFOR»
 						«ELSE»
-							«generateJsExpression(exp.body)»	
+							«generateJsExpression(exp.body,scope)»	
 						«ENDIF»
 					}
 				'''
@@ -1751,52 +1837,51 @@ class FLYGenerator extends AbstractGenerator {
 				var «(exp.index as VariableDeclaration).name»;
 				for(«(exp.index as VariableDeclaration).name» = «(exp.object as RangeLiteral).value1» ;«(exp.index as VariableDeclaration).name» < «(exp.object as RangeLiteral).value2»; «(exp.index as VariableDeclaration).name»++)
 				«IF exp.body instanceof BlockExpression»
-					«generateJsBlockExpression(exp.body as BlockExpression)»
+					«generateJsBlockExpression(exp.body as BlockExpression,scope)»
 				«ELSE»
-					«generateJsExpression(exp.body)»
+					«generateJsExpression(exp.body,scope)»
 				«ENDIF»
 			'''
 		} else if (exp.object instanceof VariableLiteral) {
 			if (((exp.object as VariableLiteral).variable.typeobject.equals('var') &&
 				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
-				memory.get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
+				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
 				return '''
-					for(__key in « (exp.object as VariableLiteral).variable.name » ){
+					for(__key in «(exp.object as VariableLiteral).variable.name» ){
 						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«(exp.object as VariableLiteral).variable.name»[__key]}
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
-							«generateJsExpression(e)»
+								«generateJsExpression(e,scope)»
 							«ENDFOR»
 						«ELSE»
-							«generateJsExpression(exp.body)»	
+							«generateJsExpression(exp.body,scope)»	
 						«ENDIF»
 					}
 				'''
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
-				memory.get((exp.object as VariableLiteral).variable.name).equals("Table")) {
+				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				return '''
-				«(exp.object as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
-				«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-							«generateJsExpression(e)»
-					«ENDFOR»
-				«ELSE»
-						«generateJsExpression(exp.body)»
-				«ENDIF»
-				});
+					«(exp.object as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
+					«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+							«generateJsExpression(e,scope)»
+						«ENDFOR»
+					«ELSE»
+						«generateJsExpression(exp.body,scope)»
+					«ENDIF»
+					});
 				'''
 			}
 		}
-	}	
+	}
 
-
-	def generateJsBlockExpression(BlockExpression block) {
+	def generateJsBlockExpression(BlockExpression block, String scope) {
 		'''
-		{
-			«FOR exp : block.expressions»
-				«generateJsExpression(exp)»
-			«ENDFOR»
-		}
+			{
+				«FOR exp : block.expressions»
+					«generateJsExpression(exp,scope)»
+				«ENDFOR»
+			}
 		'''
 	}
 
@@ -1822,25 +1907,24 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«exp.value»'''
 		}
 		if (exp instanceof StringLiteral) {
-			return '''\"«exp.value»\"'''
+			return '''"«exp.value»"'''
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("random")) {
 				return '''Math.random()'''
 			}
-		} else if(exp instanceof NameObject){
+		} else if (exp instanceof NameObject) {
 			return '''«(exp.name as VariableDeclaration).name».«exp.value»'''
-		}else if(exp instanceof IndexObject){
+		} else if (exp instanceof IndexObject) {
 			if (exp.value != null) {
 				return '''«(exp.name as VariableDeclaration).name»["«(exp.value.name)»"]'''
-			} else{
+			} else {
 				return '''«(exp.name as VariableDeclaration).name»[«exp.valuet»]'''
 			}
-		}else if(exp instanceof CastExpression){
+		} else if (exp instanceof CastExpression) {
 			return '''«generateJsArithmeticExpression(exp.target)»'''
-		} else if(exp instanceof MathFunction){
-				
+		} else if (exp instanceof MathFunction) {
 		}
 	}
 

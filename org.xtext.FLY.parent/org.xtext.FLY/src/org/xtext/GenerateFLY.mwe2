@@ -36,7 +36,7 @@ Workflow {
 			parserGenerator = {
 				debugGrammar = true	
 			}
-			
+						
 			generator = {
 				generateJavaMain = true
 			}
@@ -44,6 +44,10 @@ Workflow {
 			serializer = {
 				generateStub = false
 			}
+			
+			projectWizard = {
+        		generate = true
+   			}			
 			
 			validator = {
 				 //composedCheck = "org.eclipse.xtext.validation.NamesAreUniqueValidator"
