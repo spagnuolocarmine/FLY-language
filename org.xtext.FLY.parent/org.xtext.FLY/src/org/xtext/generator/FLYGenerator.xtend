@@ -143,22 +143,24 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
 		import com.amazonaws.services.lambda.model.FunctionCode;
 		import com.amazonaws.services.lambda.model.Runtime;
-		import com.amazonaws.services.sns.AmazonSNS;
-		import com.amazonaws.services.sns.AmazonSNSClient;
-		import com.amazonaws.services.sns.model.CreateTopicRequest;
-		import com.amazonaws.services.sns.model.CreateTopicResult;
-		import com.amazonaws.services.sns.model.DeleteTopicRequest;
-		import com.amazonaws.services.sns.model.PublishRequest;
-		import com.amazonaws.services.sns.model.PublishResult;
-		import com.amazonaws.services.sns.model.SubscribeRequest;
-		import com.amazonaws.services.sns.model.SubscribeResult;
-		import com.amazonaws.services.sns.model.UnsubscribeRequest;
+«««		import com.amazonaws.services.sns.AmazonSNS;
+«««		import com.amazonaws.services.sns.AmazonSNSClient;
+«««		import com.amazonaws.services.sns.model.CreateTopicRequest;
+«««		import com.amazonaws.services.sns.model.CreateTopicResult;
+«««		import com.amazonaws.services.sns.model.DeleteTopicRequest;
+«««		import com.amazonaws.services.sns.model.PublishRequest;
+«««		import com.amazonaws.services.sns.model.PublishResult;
+«««		import com.amazonaws.services.sns.model.SubscribeRequest;
+«««		import com.amazonaws.services.sns.model.SubscribeResult;
+«««		import com.amazonaws.services.sns.model.UnsubscribeRequest;
 		import com.amazonaws.services.sqs.AmazonSQS;
 		import com.amazonaws.services.sqs.AmazonSQSClient;
 		import com.amazonaws.services.sqs.model.CreateQueueRequest;
+		import com.amazonaws.services.sqs.model.CreateQueueResult;
 		import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 		import com.amazonaws.services.sqs.model.ReceiveMessageResult;
 		import com.amazonaws.services.sqs.model.SendMessageRequest;
+		import com.amazonaws.services.sqs.model.AmazonSQSException;
 		import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
 		import com.amazonaws.services.identitymanagement.model.GetRoleResult;
 		
@@ -880,8 +882,25 @@ class FLYGenerator extends AbstractGenerator {
 «««			//create the topic to publish the input for lambda function
 «««			CreateTopicRequest __createTopicRequest = new CreateTopicRequest("«function»_simulation_input");
 «««			CreateTopicResult __createTopicResult = __sns.createTopic(__createTopicRequest);
-«««			final String __topicArn = __createTopicResult.getTopicArn();
-«««						
+«««			final String __topicArn = __createTopicResult.getTopicArn()
+«««			
+			//create input queue (trigger) for lambda function			
+			
+			CreateQueueRequest __create_request = new CreateQueueRequest("aws_«call.target.name»__input")
+			        .addAttributesEntry("DelaySeconds", "60")
+			        .addAttributesEntry("MessageRetentionPeriod", "86400");
+			CreateQueueResult __create_response = null;
+			try {
+			    __create_response = __sqs.createQueue(__create_request);
+			    
+			} catch (AmazonSQSException e) {
+			    if (!e.getErrorCode().equals("QueueAlreadyExists")) {
+			        throw e;
+			    }
+			}
+			
+			final String __aws_«call.target.name»__input_url = __create_response.getQueueUrl();
+			final String __aws_«call.target.name»__input_arn = __sqs.getQueueAttributes(new GetQueueAttributesRequest(__aws_«call.target.name»__input_url)).getAttributes().get("QueueArn");
 						
 			//create the policy for the lambda function
 			final String __POLICY_DOCUMENT =		"{" +
@@ -995,15 +1014,15 @@ class FLYGenerator extends AbstractGenerator {
 					//add the trigger for AWS SNS service
 					AddPermissionRequest __request_permission = new AddPermissionRequest()
 							.withAction("lambda:InvokeFunction")
-							.withStatementId("allow_sns_to_call_lambda")
-							.withPrincipal("sns.amazonaws.com")
-							.withSourceArn(__topicArn)
+							.withStatementId("allow_sqs_to_call_lambda")
+							.withPrincipal("sqs.amazonaws.com")
+							.withSourceArn(__aws_«call.target.name»__input_arn)
 							.withFunctionName(__functionName);
 					
 					AddPermissionResult __response_permission = __lambda.addPermission(__request_permission);
 					
-					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
-							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
+«««					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
+«««							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
 					ExecutorService __poolAWS = Executors.newFixedThreadPool(4);
 		'''
 		// send message on sns to invoke the required 
@@ -1016,9 +1035,10 @@ class FLYGenerator extends AbstractGenerator {
 										@Override
 										public Object call() throws Exception {
 											// TODO Auto-generated method stub
-											__sns.publish(new PublishRequest()
-													.withMessage(__s_temp)
-													.withTopicArn(__topicArn));
+											__sqs.sendMessage(new SendMessageRequest().
+															withQueueUrl(__aws_«call.target.name»__input_url).
+															withMessageBody(__s_temp)
+															);
 											return null;
 										}
 						});
@@ -1038,9 +1058,9 @@ class FLYGenerator extends AbstractGenerator {
 		}
 		// clean the aws environtment
 		ret += '''
-			//delete the subscription to the topic and the top
-			__sns.unsubscribe(new UnsubscribeRequest(__subscribeResult.getSubscriptionArn()));
-			__sns.deleteTopic(__createTopicResult.getTopicArn());
+«««			//delete the subscription to the topic and the top
+«««			__sns.unsubscribe(new UnsubscribeRequest(__subscribeResult.getSubscriptionArn()));
+«««			__sns.deleteTopic(__createTopicResult.getTopicArn());
 			//delete the policy and the role
 			__iam.deleteRolePolicy(new DeleteRolePolicyRequest().withPolicyName(__putRolePolicyRequest.getPolicyName()).withRoleName(__putRolePolicyRequest.getRoleName()));
 			__iam.deleteRole(new DeleteRoleRequest().withRoleName(__roleResult.getRole().getRoleName()));
@@ -1637,7 +1657,7 @@ class FLYGenerator extends AbstractGenerator {
 				};
 				sqs.getQueueUrl(params, function(err,data){
 					if(err){
-						console.log(\"Error\", err);
+						console.log("Error", err);
 					}else{
 						var params2= {
 						MessageBody : «generateJsArithmeticExpression(exp.expression)»,
@@ -1645,7 +1665,7 @@ class FLYGenerator extends AbstractGenerator {
 						}
 						sqs.sendMessage(params2, function(err,data){
 							if(err){
-								console.log("Error",err);"
+								console.log("Error",err);
 							}else{
 								console.log("Send Success");
 							}
@@ -1772,7 +1792,7 @@ class FLYGenerator extends AbstractGenerator {
 						(assignment.feature_obj as NameObject).value,
 					valuateArithmeticExpression(assignment.value, scope))
 				return '''
-					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»[\"«(assignment.feature_obj as NameObject).value»\"] = «generateJsArithmeticExpression(assignment.value)» 
+					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»["«(assignment.feature_obj as NameObject).value»"] = «generateJsArithmeticExpression(assignment.value)» 
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
