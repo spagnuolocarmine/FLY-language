@@ -55,6 +55,7 @@ import org.xtext.fLY.SortExpression
 import java.util.EventObject
 import org.xtext.fLY.LocalFunctionInput
 import javax.lang.model.type.ArrayType
+import org.eclipse.xtext.findReferences.TargetURIs.Key
 
 /**
  * Generates code from your model files on save.
@@ -64,6 +65,7 @@ import javax.lang.model.type.ArrayType
 class FLYGenerator extends AbstractGenerator {
 
 	HashMap<String, HashMap<String, String>> typeSystem = new HashMap<String, HashMap<String, String>>(); // memory hash
+	HashMap<String,String> fly_function_names = new HashMap<String, String>();
 	var name = ""
 	var func_ID = 0
 	var last_func_result = null
@@ -75,7 +77,9 @@ class FLYGenerator extends AbstractGenerator {
 		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
-		
+		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
+			fly_function_names.put(element.target.name,element.target.name+"_"+System.currentTimeMillis);
+		}
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
 		fsa.generateFile(name + ".java", resource.compileJava)
@@ -85,20 +89,22 @@ class FLYGenerator extends AbstractGenerator {
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
 			if (type_env != "local") {
-
 				fsa.generateFile(element.target.name + ".js", resource.compileJS(element.target, type_env));
+				fsa.generateFile(type_env+"_deploy.sh",resource.compileScript(element.target.name,type_env));
 			}
 		}
 	}
-
+		
 	def CharSequence compileJava(Resource resource) '''
 		import java.io.File;
 		import java.io.FileInputStream;
+		import java.io.InputStreamReader;
 		import java.io.FileOutputStream;
 		import java.io.IOException;
 		import java.nio.ByteBuffer;
 		import java.nio.channels.FileChannel;
 		import java.nio.file.StandardOpenOption;
+		import java.io.BufferedReader;
 		import java.util.ArrayList;
 		import java.util.List;
 		import java.util.zip.ZipEntry;
@@ -142,7 +148,6 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.lambda.model.CreateFunctionResult;
 		import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
 		import com.amazonaws.services.lambda.model.FunctionCode;
-		import com.amazonaws.services.lambda.model.Runtime;
 «««		import com.amazonaws.services.sns.AmazonSNS;
 «««		import com.amazonaws.services.sns.AmazonSNSClient;
 «««		import com.amazonaws.services.sns.model.CreateTopicRequest;
@@ -154,6 +159,7 @@ class FLYGenerator extends AbstractGenerator {
 «««		import com.amazonaws.services.sns.model.SubscribeResult;
 «««		import com.amazonaws.services.sns.model.UnsubscribeRequest;
 		import com.amazonaws.services.sqs.AmazonSQS;
+		import com.amazonaws.services.sqs.model.Message;
 		import com.amazonaws.services.sqs.AmazonSQSClient;
 		import com.amazonaws.services.sqs.model.CreateQueueRequest;
 		import com.amazonaws.services.sqs.model.CreateQueueResult;
@@ -161,6 +167,8 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.sqs.model.ReceiveMessageResult;
 		import com.amazonaws.services.sqs.model.SendMessageRequest;
 		import com.amazonaws.services.sqs.model.AmazonSQSException;
+		import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
+		import com.amazonaws.services.sqs.model.GetQueueUrlResult;
 		import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
 		import com.amazonaws.services.identitymanagement.model.GetRoleResult;
 		
@@ -177,9 +185,12 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDIF»
 			«ENDFOR»
 			
+			static ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
 			«IF __local»
 				static LinkedTransferQueue<String> __asyncTermination = new LinkedTransferQueue<String>(); 
 			«ENDIF»
+			
+			static HashMap<String,String> __fly_function_names = new HashMap<String,String>();
 			
 			public static void main(String[] args) throws Exception{
 								
@@ -215,9 +226,9 @@ class FLYGenerator extends AbstractGenerator {
 			«IF element instanceof RandomDeclaration»
 				«generateRandomDeclaration(element)»
 			«ENDIF»
-			«IF element instanceof EnvironmentDeclaration»
-				«generateEnvironmentDeclaration(element)»
-			«ENDIF»
+«««			«IF element instanceof EnvironmentDeclaration»
+«««				«generateEnvironmentDeclaration(element)»
+«««			«ENDIF»
 			«IF element instanceof Assignment»
 				«generateAssignment(element,scope)»
 			«ENDIF»
@@ -358,15 +369,15 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 
-	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
-		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("local")) {
-			__local = true
-			return '''
-				ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
-			'''
-		}
-	}
+//	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
+//		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
+//		if (env.equals("local")) {
+//			__local = true
+//			return '''
+//				ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
+//			'''
+//		}
+//	}
 
 	def generateEnvironmentDeclarationForCloud(EnvironmentDeclaration dec) {
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
@@ -396,12 +407,12 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateChannelDeclaration(ChannelDeclaration declaration) {
-		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("local")) {
+		//var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
+		//if (env.equals("local")) {
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
 			'''
-		}
+		//}
 	}
 
 	def generateChanelDeclarationForCloud(ChannelDeclaration declaration) { // create a queue on AWS
@@ -409,6 +420,23 @@ class FLYGenerator extends AbstractGenerator {
 		if (env.equals("aws")) {
 			return '''
 				__sqs.createQueue(new CreateQueueRequest("«declaration.name»"));
+				
+				for(int __i=0;__i<4;__i++){
+					thread_pool.submit(new Callable<Object>() {
+						@Override
+						public Object call() throws Exception {
+							while(true) {
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»").getQueueUrl()).
+										withWaitTimeSeconds(20).withMaxNumberOfMessages(10);
+								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								for(Message msg : __res.getMessages()) {
+									ch.put(msg.getBody());
+									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»").getQueueUrl(), msg.getReceiptHandle());
+								}
+							}
+						}
+					});
+				}
 			'''
 		}
 	}
@@ -482,8 +510,12 @@ class FLYGenerator extends AbstractGenerator {
 						right as DeclarationObject).features.get(0).value_s.equals("aws")) {
 						if (expression.type.equals("Integer")) {
 							return '''
+								__
 								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl());
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								while(__res.getMessages().size() == 0){
+									__res = __sqs.receiveMessage(__recmsg);
+								}
 								Integer.parseInt(__res.getMessages().get(0).getBody());
 								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
@@ -491,6 +523,9 @@ class FLYGenerator extends AbstractGenerator {
 							return '''
 								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl());
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								while(__res.getMessages().size() == 0){
+								__res = __sqs.receiveMessage(__recmsg);
+								}
 								Double.parseDouble(__res.getMessages().get(0).getBody());
 								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
@@ -884,165 +919,197 @@ class FLYGenerator extends AbstractGenerator {
 «««			CreateTopicResult __createTopicResult = __sns.createTopic(__createTopicRequest);
 «««			final String __topicArn = __createTopicResult.getTopicArn()
 «««			
-			//create input queue (trigger) for lambda function			
-			
-			CreateQueueRequest __create_request = new CreateQueueRequest("aws_«call.target.name»__input")
-			        .addAttributesEntry("DelaySeconds", "60")
-			        .addAttributesEntry("MessageRetentionPeriod", "86400");
-			CreateQueueResult __create_response = null;
-			try {
-			    __create_response = __sqs.createQueue(__create_request);
-			    
-			} catch (AmazonSQSException e) {
-			    if (!e.getErrorCode().equals("QueueAlreadyExists")) {
-			        throw e;
-			    }
-			}
-			
-			final String __aws_«call.target.name»__input_url = __create_response.getQueueUrl();
-			final String __aws_«call.target.name»__input_arn = __sqs.getQueueAttributes(new GetQueueAttributesRequest(__aws_«call.target.name»__input_url)).getAttributes().get("QueueArn");
-						
-			//create the policy for the lambda function
-			final String __POLICY_DOCUMENT =		"{" +
-									"  \"Version\": \"2012-10-17\"," +
-									"  \"Statement\": [" +
-									"    {" +
-									"        \"Effect\": \"Allow\"," +
-									"        \"Action\": ["+
-									"			\"sqs:*\""
-									+ 		 "]," +
-									"        \"Resource\": \"*\"" +
-									"    }," +
-									"    {" +
-									"        \"Effect\": \"Allow\"," +
-									"        \"Action\": [" +
-									"            \"logs:CreateLogGroup\"," +
-									"            \"logs:CreateLogStream\"," +
-									"            \"logs:PutLogEvents\"" +
-									"       ]," +
-									"       \"Resource\": \"*\"" +
-									"    }" +
-									"   ]" +
-									"}";
-			
-			
-					//create the role for the lambda function
-					CreateRoleRequest __request_role = new CreateRoleRequest().withRoleName("«function»-lambda-sqs-execution")
-							.withAssumeRolePolicyDocument(""
-								+"{"
-								+"	  \"Version\": \"2012-10-17\","
-								+"	  \"Statement\": ["
-								+"	    {"
-								+"	      \"Effect\": \"Allow\","
-								+"	      \"Principal\": {"
-								+"	        \"Service\": \"lambda.amazonaws.com\" "
-								+"	      },"
-								+"	      \"Action\": \"sts:AssumeRole\" "
-								+"	    }"
-								+"	  ]"
-								+"	}"
-							);
-			
-					CreateRoleResult __roleResult = __iam.createRole(__request_role);
-			
-					PutRolePolicyRequest __putRolePolicyRequest = new PutRolePolicyRequest()
-							.withPolicyName("«function»-lambda-sqs-policy-rule")
-							.withPolicyDocument(__POLICY_DOCUMENT)
-							.withRoleName("«function»-lambda-sqs-execution");
-			
-					__iam.putRolePolicy(__putRolePolicyRequest);
-								
-					««« String __body=«generateBodyJs(call.target.body,call.target.name)»;
-«««					try {
-«««						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
-«««						__out.write(__body);
-«««						__out.close();
-«««					
-«««					} catch (IOException e) {
-«««						// TODO Auto-generated catch block
-«««						e.printStackTrace();
+«««			//create input queue (trigger) for lambda function			
+«««			
+«««			CreateQueueRequest __create_request = new CreateQueueRequest("aws_«call.target.name»__input")
+«««			        .addAttributesEntry("DelaySeconds", "60")
+«««			        .addAttributesEntry("MessageRetentionPeriod", "86400");
+«««			CreateQueueResult __create_response = null;
+«««			try {
+«««			    __create_response = __sqs.createQueue(__create_request);
+«««			    
+«««			} catch (AmazonSQSException e) {
+«««			    if (!e.getErrorCode().equals("QueueAlreadyExists")) {
+«««			        throw e;
+«««			    }
+«««			}
+«««			
+«««			final String __aws_«call.target.name»__input_url = __create_response.getQueueUrl();
+«««			ArrayList<String> __«call.target.name»_list_attributes = new ArrayList<String>();
+«««			__«call.target.name»_list_attributes.add("QueueArn");
+«««			final String __aws_«call.target.name»__input_arn = __sqs.getQueueAttributes(new GetQueueAttributesRequest(__aws_«call.target.name»__input_url,__«call.target.name»_list_attributes)).getAttributes().get("QueueArn");
+«««						
+«««			//create the policy for the lambda function
+«««			final String __POLICY_DOCUMENT =		"{" +
+«««									"  \"Version\": \"2012-10-17\"," +
+«««									"  \"Statement\": [" +
+«««									"    {" +
+«««									"        \"Effect\": \"Allow\"," +
+«««									"        \"Action\": ["+
+«««									"			\"sqs:*\""+
+«««									" 		 ]," +
+«««									"        \"Resource\": \"*\"" +
+«««									"    }," +
+«««									"    {" +
+«««									"        \"Effect\": \"Allow\"," +
+«««									"        \"Action\": [" +
+«««									"            \"logs:CreateLogGroup\"," +
+«««									"            \"logs:CreateLogStream\"," +
+«««									"            \"logs:PutLogEvents\"" +
+«««									"       ]," +
+«««									"       \"Resource\": \"*\"" +
+«««									"    }" +
+«««									"   ]" +
+«««									"}";
+«««			
+«««			
+«««					//create the role for the lambda function
+«««					CreateRoleRequest __request_role = new CreateRoleRequest().withRoleName("«function»-lambda-sqs-execution")
+«««							.withAssumeRolePolicyDocument(""
+«««								+"{"
+«««								+"	  \"Version\": \"2012-10-17\","
+«««								+"	  \"Statement\": ["
+«««								+"	    {"
+«««								+"	      \"Effect\": \"Allow\","
+«««								+"	      \"Principal\": {"
+«««								+"	        \"Service\": \"lambda.amazonaws.com\" "
+«««								+"	      },"
+«««								+"	      \"Action\": \"sts:AssumeRole\" "
+«««								+"	    }"
+«««								+"	  ]"
+«««								+"	}"
+«««							);
+«««			
+«««					CreateRoleResult __roleResult = __iam.createRole(__request_role);
+«««			
+«««					PutRolePolicyRequest __putRolePolicyRequest = new PutRolePolicyRequest()
+«««							.withPolicyName("«function»-lambda-sqs-policy-rule")
+«««							.withPolicyDocument(__POLICY_DOCUMENT)
+«««							.withRoleName("«function»-lambda-sqs-execution");
+«««			
+«««					__iam.putRolePolicy(__putRolePolicyRequest);
+«««								
+«««					««« String __body=«generateBodyJs(call.target.body,call.target.name)»;
+««««««					try {
+««««««						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
+««««««						__out.write(__body);
+««««««						__out.close();
+««««««					
+««««««					} catch (IOException e) {
+««««««						// TODO Auto-generated catch block
+««««««						e.printStackTrace();
+««««««					}
+«««					String __sourceFile = "src-gen/«call.target.name».js";
+«««					FileOutputStream __fos = new FileOutputStream("«call.target.name».zip");
+«««					ZipOutputStream __zipOut = new ZipOutputStream(__fos);
+«««					File __fileToZip = new File(__sourceFile);
+«««					FileInputStream __fis = new FileInputStream(__fileToZip);
+«««					ZipEntry __zipEntry = new ZipEntry(__fileToZip.getName());
+«««					__zipOut.putNextEntry(__zipEntry);
+«««					final byte[] __bytes = new byte[1024];
+«««					int __length;
+«««					while((__length = __fis.read(__bytes)) >= 0) {
+«««						__zipOut.write(__bytes, 0, __length);
 «««					}
-					String __sourceFile = "«call.target.name».js";
-					FileOutputStream __fos = new FileOutputStream("«call.target.name».zip");
-					ZipOutputStream __zipOut = new ZipOutputStream(__fos);
-					File __fileToZip = new File(__sourceFile);
-					FileInputStream __fis = new FileInputStream(__fileToZip);
-					ZipEntry __zipEntry = new ZipEntry(__fileToZip.getName());
-					__zipOut.putNextEntry(__zipEntry);
-					final byte[] __bytes = new byte[1024];
-					int __length;
-					while((__length = __fis.read(__bytes)) >= 0) {
-						__zipOut.write(__bytes, 0, __length);
-					}
-					__zipOut.close();
-					__fis.close();
-					__fos.close();
-					
-					final File __zipfile = new File("«call.target.name».zip");
-					final ByteBuffer __zipbuf;
-					try (FileChannel __zipch = FileChannel.open(__zipfile.toPath(), StandardOpenOption.READ)) {
-						final int __jarsz = (int) __zipch.size();
-						__zipbuf = ByteBuffer.allocate(__jarsz);
-						while (__zipbuf.remaining() > 0) {
-							__zipch.read(__zipbuf);
-						}
-						__zipbuf.flip();
-					} catch (final IOException iox) {
-						throw new RuntimeException("cannot load zip", iox);
-					}
-										
-					GetRoleRequest __getRoleRequest = new GetRoleRequest().withRoleName(__roleResult.getRole().getRoleName());
-					GetRoleResult __getRoleResult = __iam.getRole(__getRoleRequest);
-							
-					String __functionName = "lambda_«call.target.name»_"+System.currentTimeMillis();
-					CreateFunctionRequest __lambdaRequest = new CreateFunctionRequest()
-									.withFunctionName(__functionName)
-									.withRuntime(Runtime.Nodejs43)
-									.withRole(__getRoleResult.getRole().getArn())
-									.withDescription("lambda function automatically deployed")
-									.withHandler("«call.target.name».handler").withCode(new FunctionCode().withZipFile(__zipbuf));
-					CreateFunctionResult __lambdaResponse = null;
-					boolean __create_function = false;
-					while(!__create_function){
-						try{
-								__lambdaResponse =__lambda.createFunction(__lambdaRequest);
-								__create_function= true;
-							}catch(Exception e){
-								
-							}
-					}
-					//add the trigger for AWS SNS service
-					AddPermissionRequest __request_permission = new AddPermissionRequest()
-							.withAction("lambda:InvokeFunction")
-							.withStatementId("allow_sqs_to_call_lambda")
-							.withPrincipal("sqs.amazonaws.com")
-							.withSourceArn(__aws_«call.target.name»__input_arn)
-							.withFunctionName(__functionName);
-					
-					AddPermissionResult __response_permission = __lambda.addPermission(__request_permission);
+«««					__zipOut.close();
+«««					__fis.close();
+«««					__fos.close();
+«««					
+«««					final File __zipfile = new File("«call.target.name».zip");
+«««					final ByteBuffer __zipbuf;
+«««					try (FileChannel __zipch = FileChannel.open(__zipfile.toPath(), StandardOpenOption.READ)) {
+«««						final int __jarsz = (int) __zipch.size();
+«««						__zipbuf = ByteBuffer.allocate(__jarsz);
+«««						while (__zipbuf.remaining() > 0) {
+«««							__zipch.read(__zipbuf);
+«««						}
+«««						__zipbuf.flip();
+«««					} catch (final IOException iox) {
+«««						throw new RuntimeException("cannot load zip", iox);
+«««					}
+«««										
+«««					GetRoleRequest __getRoleRequest = new GetRoleRequest().withRoleName(__roleResult.getRole().getRoleName());
+«««					GetRoleResult __getRoleResult = __iam.getRole(__getRoleRequest);
+«««							
+«««					String __functionName = "lambda_«call.target.name»_"+System.currentTimeMillis();
+«««					CreateFunctionRequest __lambdaRequest = new CreateFunctionRequest()
+«««									.withFunctionName(__functionName)
+«««									.withRuntime(Runtime.Nodejs810)
+«««									.withRole(__getRoleResult.getRole().getArn())
+«««									.withDescription("lambda function automatically deployed")
+«««									.withTimeout(60)
+«««									.withMemorySize(128)
+«««									.withHandler("«call.target.name».handler").withCode(new FunctionCode().withZipFile(__zipbuf));
+«««					CreateFunctionResult __lambdaResponse = null;
+«««					boolean __create_function = false;
+«««					while(!__create_function){
+«««						try{
+«««								__lambdaResponse =__lambda.createFunction(__lambdaRequest);
+«««								__create_function= true;
+«««							}catch(Exception e){
+«««								
+«««							}
+«««					}
+«««					//add the trigger for AWS SNS service
+«««					AddPermissionRequest __reqscript_uest_permission = new AddPermissionRequest()
+«««							.withAction("lambda:CreateEventSourceMapping")
+«««							.withAction("lambda:ListEventSourceMappings")
+«««							.withAction("lambda:ListFunction")
+«««							.withStatementId("allow_sqs_to_call_lambda")
+«««							.withPrincipal("sqs.amazonaws.com")
+«««							.withSourceArn(__aws_«call.target.name»__input_arn)
+«««							.withFunctionName(__functionName);
+«««					
+«««					AddPermissionResult __response_permission = __lambda.addPermission(__request_permission);
+«««					
+«««					__lambda.createEventSourceMapping(new CreateEventSourceMappingRequest().
+«««											withEventSourceArn(__aws_«call.target.name»__input_arn)
+«««											.withBatchSize(1)
+«««											.withEnabled(true)
+«««											.withFunctionName(__functionName));
 					
 «««					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
 «««							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
+					
+					__fly_function_names.put("«call.target.name»","«call.target.name»_"+System.currentTimeMillis());
+					Runtime.getRuntime().exec("chmod +x src-gen/«cred»_deploy.sh");
+					Process p;
+					try {
+						StringBuffer output = new StringBuffer();
+						p = Runtime.getRuntime().exec("src-gen/«cred»_deploy.sh "+"«call.target.name» "+__fly_function_names.get("«call.target.name»"));
+						p.waitFor();
+						BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+						
+						String line = "";			
+						while ((line = reader.readLine())!= null) {
+							System.out.println(line );
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
 					ExecutorService __poolAWS = Executors.newFixedThreadPool(4);
 		'''
 		// send message on sns to invoke the required 
 		if (call.input.isIs_for_index) {
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
-					for(int __«call.target.name»_i=«(call.input.f_index as RangeLiteral).value1»;__«call.target.name»_i<«(call.input.f_index as RangeLiteral).value2»;__«call.target.name»_i++){
-						final String __s_temp = String.valueOf(__«call.target.name»_i);
-									Future<Object> f = __poolAWS.submit(new Callable<Object>() {
-										@Override
-										public Object call() throws Exception {
-											// TODO Auto-generated method stub
-											__sqs.sendMessage(new SendMessageRequest().
-															withQueueUrl(__aws_«call.target.name»__input_url).
-															withMessageBody(__s_temp)
-															);
-											return null;
-										}
+					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
+					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
+					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
+						final String __s_temp = String.valueOf(___i);
+						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								__sqs.sendMessage(new SendMessageRequest().
+												withQueueUrl(__input_queue_url).
+												withMessageBody(__s_temp)
+												);
+								return null;
+							}
 						});
 					}
+					__poolAWS.shutdown();
 				'''
 			} else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
@@ -1057,16 +1124,16 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		}
 		// clean the aws environtment
-		ret += '''
-«««			//delete the subscription to the topic and the top
-«««			__sns.unsubscribe(new UnsubscribeRequest(__subscribeResult.getSubscriptionArn()));
-«««			__sns.deleteTopic(__createTopicResult.getTopicArn());
-			//delete the policy and the role
-			__iam.deleteRolePolicy(new DeleteRolePolicyRequest().withPolicyName(__putRolePolicyRequest.getPolicyName()).withRoleName(__putRolePolicyRequest.getRoleName()));
-			__iam.deleteRole(new DeleteRoleRequest().withRoleName(__roleResult.getRole().getRoleName()));
-			//delete the function
-			__lambda.deleteFunction(new DeleteFunctionRequest().withFunctionName(__functionName));
-		'''
+//		ret += '''
+//«««			//delete the subscription to the topic and the top
+//«««			__sns.unsubscribe(new UnsubscribeRequest(__subscribeResult.getSubscriptionArn()));
+//«««			__sns.deleteTopic(__createTopicResult.getTopicArn());
+//«««			//delete the policy and the role
+//«««			__iam.deleteRolePolicy(new DeleteRolePolicyRequest().withPolicyName(__putRolePolicyRequest.getPolicyName()).withRoleName(__putRolePolicyRequest.getRoleName()));
+//«««			__iam.deleteRole(new DeleteRoleRequest().withRoleName(__roleResult.getRole().getRoleName()));
+//«««			//delete the function
+//«««			__lambda.deleteFunction(new DeleteFunctionRequest().withFunctionName(__functionName));
+//		'''
 		return ret
 	}
 
@@ -1079,6 +1146,9 @@ class FLYGenerator extends AbstractGenerator {
 			return '''
 				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl());
 				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+				while(__res.getMessages().size() == 0){
+					__res = __sqs.receiveMessage(__recmsg);
+				}
 				__res.getMessages().get(0).getBody();
 				__sqs.deleteMessage(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle())
 			'''
@@ -1092,7 +1162,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
-				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»").getQueueUrl(), «generateArithmeticExpression(send.expression,scope)»);
+				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»").getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
 				__sqs.sendMessage(__sndmsg)
 			'''
 		}
@@ -1276,17 +1346,11 @@ class FLYGenerator extends AbstractGenerator {
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
-							ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl());
-							ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
-							__sqs.deleteMessage(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
-							ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl());
-							ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble(__res.getMessages().get(0).getBody());
-							__sqs.deleteMessage(__sqs.getQueueUrl("«((assignment.value as CastExpression).target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 						'''
 					}
 				} else { // local environment
@@ -1380,6 +1444,8 @@ class FLYGenerator extends AbstractGenerator {
 		'''
 		return s
 	}
+	
+	
 
 	def getParameterType(String name, Expression param, int pos) {
 
@@ -1638,9 +1704,11 @@ class FLYGenerator extends AbstractGenerator {
 				var AWS = require('aws-sdk');
 				var sqs = new AWS.SQS();
 			«ENDIF»
-			var dataframe = require('dataframe-js').DataFrame
+			var dataframe = require('dataframe-js').DataFrame;
+			let __params;
+			let __data;
 			
-			exports.handler = async function(context,event){
+			exports.handler = async (context,event) => {
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
 				«ENDFOR»
@@ -1652,26 +1720,18 @@ class FLYGenerator extends AbstractGenerator {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
-				var params = {
+				__params = {
 					QueueName : "«exp.target.name»" 
 				};
-				sqs.getQueueUrl(params, function(err,data){
-					if(err){
-						console.log("Error", err);
-					}else{
-						var params2= {
-						MessageBody : «generateJsArithmeticExpression(exp.expression)»,
-						QueueUrl : data.QueueUrl
-						}
-						sqs.sendMessage(params2, function(err,data){
-							if(err){
-								console.log("Error",err);
-							}else{
-								console.log("Send Success");
-							}
-						});
-					}
-				});
+				
+				__data = await sqs.getQueueUrl(__params).promise();
+				
+				__params = {
+							MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
+							QueueUrl : __data.QueueUrl
+				}
+				
+				__data = await sqs.sendMessage(__params).promise();
 			'''
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
@@ -1947,5 +2007,182 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof MathFunction) {
 		}
 	}
+	
+	//Generate the script for deployment
+	
+	def CharSequence compileScript(Resource resource, String name, String type_env)'''
+	#!/bin/bash
+		
+		if [ $# -eq 0 ]
+		  then
+		    echo "No arguments supplied. ./aws_deploy.sh <function_name> <generated_function_name>"
+		    exit 1
+		fi
+		
+		filename=$1
+		name=$2
+		
+		echo '{
+				"Version": "2012-10-17",
+				"Statement": [
+					{
+						"Effect": "Allow",
+						"Action": [
+							"sqs:DeleteMessage",
+							"sqs:GetQueueAttributes",
+							"sqs:ReceiveMessage",
+							"sqs:SendMessage",
+							"sqs:*"
+						],
+						"Resource": "*" 
+					},
+					{
+						"Effect":"Allow",
+						"Action": [
+							"logs:CreateLogGroup",
+							"logs:CreateLogStream",
+							"logs:PutLogEvents"
+						],
+						"Resource": "*"
+					}
+				]
+			}' > policyDocument.json
+		
+		echo '{
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": "lambda.amazonaws.com"
+							},
+							"Action": "sts:AssumeRole" 
+						}
+					]
+				}' > rolePolicyDocument.json
+		
+		#create role policy
+		
+		echo "creation of role lambda-sqs-execution ..."
+		
+		role_arn=$(aws iam get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+		
+		if [ $? -eq 255 ]; then 
+			role_arn=$(aws iam create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+		fi
+		
+		echo "role lambda-sqs-execution created at ARN "$role_arn
+		
+		aws iam put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+		
+		mkdir ${name}_lambda
+		
+		cp src-gen/${filename}.js ./${name}_lambda
+		
+		cd ${name}_lambda
+		
+		
+		
+		echo "npm init..."
+		npm init -y
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm init failed"
+		    exit 1
+		fi
+		
+		echo " npm instal aws-sdk "
+		npm install aws-sdk
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install aws-sdk failed"
+		    exit 1
+		fi
+		
+		echo "npm install async"
+		npm install async
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install async failed"
+		    exit 1
+		fi
+		
+		echo "npm install dataframe-js"
+		npm install dataframe-js
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install dataframe-js failed"
+		    exit 1
+		fi
+		
+		echo "Checking that aws-cli is installed"
+		which aws
+		if [ $? -eq 0 ]; then
+		      echo "aws-cli is installed, continuing..."
+		else
+		      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
+		      exit 1
+		fi
+		
+		echo ""
+		echo "creating .zip file"
+		
+		zip -r -q ../${name}_lambda.zip . 
+		
+		cd .. 
+			
+		#create the lambda function
+		echo "creation of the lambda function"
+		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 128 --timeout 300
+		
+		while [ $? -ne 0 ]; do
+			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 128 --timeout 300
+		done
+		
+		echo "lambda function created"
+		
+		#craete sqs input queue
+		echo "create input queue"
+		echo '{
+			"VisibilityTimeout" : "1800",
+			"MessageRetentionPeriod" : "3600"
+		}' > queue_input.json
+		create_queue=$(aws sqs create-queue --queue-name __input_${name}_queue --attributes file://queue_input.json --output json --query 'QueueUrl')
+		echo "input queue created at arn: " ${create_queue:1:-1}
+		
+		#get queue attribute
+		echo "get attributes for input queue"
+		queue_attributes=$(aws sqs get-queue-attributes --queue-url ${create_queue:1:-1} --attribute-names QueueArn --output json --query 'Attributes.QueueArn')
+		echo ${queue_attributes:1:-1}
+		
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda1 \
+		--action lambda:CraeteEventSourceMapping  --principal sqs.amazonaws.com
+		
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda2 \
+		--action lambda:ListEventSourceMapping --principal sqs.amazonaws.com
+		
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda3 \
+		--action lambda:ListFunction --principal sqs.amazonaws.com
+		
+		
+		echo "lambda permission added"
+		
+		#create event source mapping
+		echo "create event source mapping"
+		aws lambda create-event-source-mapping --event-source-arn ${queue_attributes:1:-1} --function-name ${name} --batch-size 1 --enabled
+		echo "event source mapping created"
+		
+		# clear 
+		rm -r ${name}_lambda/
+		rm ${name}_lambda.zip
+		rm rolePolicyDocument.json
+		rm policyDocument.json
+		rm queue_input.json
+	
+	'''
 
 }
