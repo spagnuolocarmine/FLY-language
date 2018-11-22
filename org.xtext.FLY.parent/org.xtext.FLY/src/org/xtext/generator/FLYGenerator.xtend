@@ -56,6 +56,7 @@ import java.util.EventObject
 import org.xtext.fLY.LocalFunctionInput
 import javax.lang.model.type.ArrayType
 import org.eclipse.xtext.findReferences.TargetURIs.Key
+import java.util.List
 
 /**
  * Generates code from your model files on save.
@@ -117,6 +118,8 @@ class FLYGenerator extends AbstractGenerator {
 		import tech.tablesaw.api.Table;
 		import tech.tablesaw.io.csv.CsvReadOptions;
 		import tech.tablesaw.columns.Column;
+		import tech.tablesaw.selection.Selection;
+		import tech.tablesaw.table.Rows;
 		import java.util.concurrent.LinkedTransferQueue;
 		import java.util.concurrent.ExecutorService;
 		import java.util.concurrent.Executors;
@@ -171,6 +174,11 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.sqs.model.GetQueueUrlResult;
 		import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
 		import com.amazonaws.services.identitymanagement.model.GetRoleResult;
+		import com.amazonaws.services.s3.AmazonS3;
+		import com.amazonaws.services.s3.AmazonS3Client;
+		import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+		import com.amazonaws.services.s3.model.AmazonS3Exception;
+		import com.amazonaws.services.s3.model.Bucket;
 		
 		
 		public class «name» {
@@ -402,6 +410,11 @@ class FLYGenerator extends AbstractGenerator {
 					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 					.withRegion("«region»")
 					.build();
+					
+				static AmazonS3 __s3 = AmazonS3Client.builder()
+					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+					.withRegion("«region»")
+					.build();
 			'''
 		}
 	}
@@ -429,8 +442,8 @@ class FLYGenerator extends AbstractGenerator {
 								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»").getQueueUrl()).
 										withWaitTimeSeconds(20).withMaxNumberOfMessages(10);
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-								for(Message msg : __res.getMessages()) {
-									ch.put(msg.getBody());
+								for(Message msg : __res.getMessages()) { 
+									«declaration.name».put(msg.getBody());
 									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»").getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
@@ -1093,6 +1106,7 @@ class FLYGenerator extends AbstractGenerator {
 		if (call.input.isIs_for_index) {
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
+
 					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
 					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
@@ -1114,6 +1128,48 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
 				 ret+='''
+					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
+					int __initial=0;
+					int __num_proc=4;
+					String __bucket_name="__input_"+__fly_function_names.get("«call.target.name»")+"_bucket";
+					__s3.createBucket(__bucket_name);
+					for(int __i=0;__i<__num_proc;__i++) {
+						if(__i<(__num_row%__num_proc)) {
+							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
+							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
+							File __f = new File("table_"+__i+".csv");
+							__s3.putObject(__bucket_name, "table_"+__i, __f);
+							__f.delete(); 
+							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
+							__initial+=(__num_row/__num_proc)+1;
+						}else{
+							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+(__num_row/__num_proc)));
+							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
+							File __f = new File("table_"+__i+".csv");
+							__s3.putObject(__bucket_name, "table_"+__i, __f );
+							//System.out.println(s3.getUrl(bucket_name, "table_"+i));
+							__f.delete();
+							__initial+=(__num_row/__num_proc);
+						}
+					}				 
+					
+					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
+					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
+					for(int __i=0;__i<4;__i++){
+						final String __s_temp = __s3.getUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_bucket","table_"+__i+".csv");
+						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								__sqs.sendMessage(new SendMessageRequest().
+												withQueueUrl(__input_queue_url).
+												withMessageBody(__s_temp)
+												);
+								return null;
+							}
+						});
+					}
+					__poolAWS.shutdown();
 				 '''
 			}
 		}
@@ -1695,10 +1751,10 @@ class FLYGenerator extends AbstractGenerator {
 
 	// ----------------------------- GENERATE JavaScript CODE -----------------------------------
 	def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
-		«generateBodyJs(func.body,func.name,env)»
+		«generateBodyJs(func.body,func.parameters,func.name,env)»
 	'''
 
-	def generateBodyJs(BlockExpression exps, String name, String env) {
+	def generateBodyJs(BlockExpression exps,List<Expression> parameters, String name, String env) {
 		'''
 			«IF env == "aws"»
 				var AWS = require('aws-sdk');
@@ -1709,6 +1765,10 @@ class FLYGenerator extends AbstractGenerator {
 			let __data;
 			
 			exports.handler = async (context,event) => {
+				
+				«FOR exp : parameters»
+					var «(exp as VariableDeclaration).name» = event.Records[0].body
+				«ENDFOR»
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
 				«ENDFOR»
