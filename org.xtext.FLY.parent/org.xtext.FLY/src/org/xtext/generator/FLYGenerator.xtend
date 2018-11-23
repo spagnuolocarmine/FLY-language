@@ -179,6 +179,8 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 		import com.amazonaws.services.s3.model.AmazonS3Exception;
 		import com.amazonaws.services.s3.model.Bucket;
+		import com.amazonaws.services.s3.model.CannedAccessControlList;
+		import com.amazonaws.services.s3.model.PutObjectRequest;
 		
 		
 		public class «name» {
@@ -572,7 +574,6 @@ class FLYGenerator extends AbstractGenerator {
 
 				}
 				if (expression.type.equals("Float")) {
-
 					return '''Double.parseDouble( «generateArithmeticExpression(expression.target,scope)».toString())'''
 				}
 			}
@@ -1131,14 +1132,16 @@ class FLYGenerator extends AbstractGenerator {
 					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
 					int __initial=0;
 					int __num_proc=4;
-					String __bucket_name="__input_"+__fly_function_names.get("«call.target.name»")+"_bucket";
+					String __bucket_name="input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket";
 					__s3.createBucket(__bucket_name);
 					for(int __i=0;__i<__num_proc;__i++) {
 						if(__i<(__num_row%__num_proc)) {
 							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
 							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
 							File __f = new File("table_"+__i+".csv");
-							__s3.putObject(__bucket_name, "table_"+__i, __f);
+							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3.putObject(__putObjectRequest);
 							__f.delete(); 
 							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
 							__initial+=(__num_row/__num_proc)+1;
@@ -1146,7 +1149,9 @@ class FLYGenerator extends AbstractGenerator {
 							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+(__num_row/__num_proc)));
 							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
 							File __f = new File("table_"+__i+".csv");
-							__s3.putObject(__bucket_name, "table_"+__i, __f );
+							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3.putObject(__putObjectRequest);
 							//System.out.println(s3.getUrl(bucket_name, "table_"+i));
 							__f.delete();
 							__initial+=(__num_row/__num_proc);
@@ -1156,7 +1161,7 @@ class FLYGenerator extends AbstractGenerator {
 					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
 					for(int __i=0;__i<4;__i++){
-						final String __s_temp = __s3.getUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_bucket","table_"+__i+".csv");
+						final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
 						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
@@ -1200,13 +1205,14 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«(receive.target as ChannelDeclaration).name».take()'''
 		} else if (env.equals("aws")) {
 			return '''
-				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl());
-				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-				while(__res.getMessages().size() == 0){
-					__res = __sqs.receiveMessage(__recmsg);
-				}
-				__res.getMessages().get(0).getBody();
-				__sqs.deleteMessage(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle())
+			«(receive.target as ChannelDeclaration).name».take()
+«««				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl());
+«««				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+«««				while(__res.getMessages().size() == 0){
+«««					__res = __sqs.receiveMessage(__recmsg);
+«««				}
+«««				__res.getMessages().get(0).getBody();
+«««				__sqs.deleteMessage(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle())
 			'''
 		}
 
@@ -1433,10 +1439,15 @@ class FLYGenerator extends AbstractGenerator {
 				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { // aws environment
 					return '''
-						ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl());
-						ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-						«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
-						__sqs.deleteMessage(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+						try{
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» «generateArithmeticExpression(assignment.value as ChannelReceive,scope)»
+						}catch(InterruptedException e1){
+							e1.printStackTrace();
+						}
+«««						ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl());
+«««						ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+«««						«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
+«««						__sqs.deleteMessage(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 					'''
 				} else { // local environment
 					return '''
@@ -1764,10 +1775,14 @@ class FLYGenerator extends AbstractGenerator {
 			let __params;
 			let __data;
 			
-			exports.handler = async (context,event) => {
+			exports.handler = async (event,context) => {
 				
 				«FOR exp : parameters»
-					var «(exp as VariableDeclaration).name» = event.Records[0].body
+					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") »
+						var «(exp as VariableDeclaration).name» = await dataframe.fromCSV(event.Records[0].body);
+					«ELSE»
+						var «(exp as VariableDeclaration).name» = event.Records[0].body;
+					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
@@ -1787,8 +1802,8 @@ class FLYGenerator extends AbstractGenerator {
 				__data = await sqs.getQueueUrl(__params).promise();
 				
 				__params = {
-							MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
-							QueueUrl : __data.QueueUrl
+					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
+					QueueUrl : __data.QueueUrl
 				}
 				
 				__data = await sqs.sendMessage(__params).promise();
@@ -1833,8 +1848,8 @@ class FLYGenerator extends AbstractGenerator {
 				if(«generateJsArithmeticExpression(exp.cond)»)
 					«generateJsExpression(exp.then,scope)» 
 				«IF exp.^else != null»
-					else
-						«generateJsExpression(exp.^else,scope)»
+				else
+					«generateJsExpression(exp.^else,scope)»
 				«ENDIF»
 			'''
 		} else if (exp instanceof ForExpression) {
@@ -1948,7 +1963,7 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp.object instanceof CastExpression) {
 			if ((exp.object as CastExpression).type.equals("Dat")) {
 				return '''
-					«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){
+					«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(async function(«(exp.index as VariableDeclaration).name»,__item,__array){
 					«IF exp.body instanceof BlockExpression»
 						«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e,scope)»
@@ -2001,7 +2016,7 @@ class FLYGenerator extends AbstractGenerator {
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				return '''
-					«(exp.object as VariableLiteral).variable.name».toCollection().forEach(function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
+					«(exp.object as VariableLiteral).variable.name».toCollection().forEach(async function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
 					«IF exp.body instanceof BlockExpression»
 						«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e,scope)»
@@ -2016,13 +2031,11 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateJsBlockExpression(BlockExpression block, String scope) {
-		'''
-			{
-				«FOR exp : block.expressions»
-					«generateJsExpression(exp,scope)»
-				«ENDFOR»
-			}
-		'''
+		'''{
+			«FOR exp : block.expressions»
+				«generateJsExpression(exp,scope)»
+			«ENDFOR»
+			}'''
 	}
 
 	def generateJsArithmeticExpression(ArithmeticExpression exp) {
@@ -2065,6 +2078,9 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof CastExpression) {
 			return '''«generateJsArithmeticExpression(exp.target)»'''
 		} else if (exp instanceof MathFunction) {
+			return '''Math.«exp.feature»(«FOR par: exp.expressions» «generateJsArithmeticExpression(par)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
+		}else{
+			return ''''''
 		}
 	}
 	
@@ -2096,6 +2112,13 @@ class FLYGenerator extends AbstractGenerator {
 						],
 						"Resource": "*" 
 					},
+					{
+					"Effect": "Allow",
+					"Action": [
+						"s3:*"
+					],
+					"Resource": "*" 
+										},
 					{
 						"Effect":"Allow",
 						"Action": [
