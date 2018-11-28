@@ -1563,9 +1563,10 @@ class FLYGenerator extends AbstractGenerator {
 				return typeobject
 			} else if (exp instanceof FlyFunctionCall && ((exp as FlyFunctionCall).target.name == name)) {
 				if ((exp as FlyFunctionCall).input.isIs_for_index) {
-					if ((exp as FlyFunctionCall).input.f_index instanceof RangeLiteral)
+					if ((exp as FlyFunctionCall).input.f_index instanceof RangeLiteral){
+						typeSystem.get(name).put((param as VariableDeclaration).name,"Integer")
 						return "Integer"
-					else if ((exp as FlyFunctionCall).input.f_index instanceof VariableLiteral) {
+					}else if ((exp as FlyFunctionCall).input.f_index instanceof VariableLiteral) {
 						var typeobject = valuateArithmeticExpression(
 							(exp as FlyFunctionCall).input.f_index as VariableLiteral, "main");
 						if (typeobject == "Table") {
@@ -1800,7 +1801,7 @@ class FLYGenerator extends AbstractGenerator {
 			exports.handler = async (event,context) => {
 				
 				«FOR exp : parameters»
-					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") »
+				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Talbe")»
 						var __«(exp as VariableDeclaration).name» = await dataframe.fromCSV(event.Records[0].body);
 						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toCollection();
 					«ELSE»
