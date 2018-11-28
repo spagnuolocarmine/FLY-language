@@ -92,7 +92,7 @@ DeclarationObject:
 ;
 
 DeclarationFeature:
-	{DeclarationFeature} feature=ID ':' (value_f= ID | value_s=STRING | value_t=INT )	
+	{DeclarationFeature} feature=ID ':' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
 ;
 
 FeautureName:
@@ -227,7 +227,7 @@ CastExpression returns ArithmeticExpression:
 ;
 
 Type:
-	'String' | 'Integer' | 'Float' | 'Date' | 'Dat' | 'Object'
+	'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double'
 ;
 
 PostfixOperation returns ArithmeticExpression:
@@ -245,7 +245,8 @@ PrimaryExpression returns ArithmeticExpression:
 	MathFunction			|
 	ChannelSend 			|
 	ChannelReceive 			|
-	VariableFunction
+	TimeFunction			|
+	VariableFunction		
 ;
 
 LiteralExpression returns ArithmeticExpression:
@@ -256,6 +257,10 @@ LiteralExpression returns ArithmeticExpression:
 	VariableLiteral |
 	RangeLiteral 	|
 	FloatLiteral
+;
+
+TimeFunction returns ArithmeticExpression:
+	{TimeFunction} 'time' '(' (value = [VariableDeclaration] )* ')' 
 ;
 
 BooleanLiteral returns ArithmeticExpression:
@@ -273,6 +278,7 @@ StringLiteral returns ArithmeticExpression:
 FloatLiteral returns ArithmeticExpression:
 	{FloatLiteral} value=FLOAT
 ;
+
 
 VariableLiteral returns ArithmeticExpression:
 	{VariableLiteral} variable=[VariableDeclaration]  

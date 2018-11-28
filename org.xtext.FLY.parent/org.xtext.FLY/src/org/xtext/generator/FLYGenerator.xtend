@@ -57,6 +57,7 @@ import org.xtext.fLY.LocalFunctionInput
 import javax.lang.model.type.ArrayType
 import org.eclipse.xtext.findReferences.TargetURIs.Key
 import java.util.List
+import org.xtext.fLY.TimeFunction
 
 /**
  * Generates code from your model files on save.
@@ -462,6 +463,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''
 				Table «dec.name» = Table.read().csv(CsvReadOptions
 					.builder(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(1).value,scope)»)
+					.maxNumberOfColumns(5000)
 					.tableName(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(0).value,scope)»)
 					.separator('«(generateArithmeticExpression((dec.right as NameObjectDef).features.get(3).value,scope) as String).charAt(1)»')
 				);
@@ -504,16 +506,25 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
+			
 			if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
 				return '''(«typeSystem.get(scope).get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
 			} else {
 				return '''«expression.name.name».get("«expression.value»")'''
 			}
 		} else if (expression instanceof IndexObject) {
-			if (typeSystem.get(scope).get(expression.name.name + "[" + expression.valuet + "]") !== null) {
+			 if (typeSystem.get(scope).get(expression.name.name + "[" + expression.valuet + "]") !== null) {
 				return '''(«typeSystem.get(scope).get(expression.name.name+"["+expression.valuet+"]")») «expression.name.name».get("«expression.valuet»")'''
 			} else {
-				return '''«expression.name.name».get("«expression.valuet»")'''
+				if(typeSystem.get(scope).get(expression.name.name).equals("HashMap"))
+					return '''«expression.name.name».get(«expression.valuet»)'''
+				else if(typeSystem.get(scope).get(typeSystem.get(scope).get(expression.name.name)).equals("Table")){
+				if(expression.value != null){
+					return '''«typeSystem.get(scope).get(expression.name.name)».get(_«typeSystem.get(scope).get(expression.name.name)», «expression.value.name»)'''
+				}else {
+					return '''«typeSystem.get(scope).get(expression.name.name)».get(_«typeSystem.get(scope).get(expression.name.name)», «expression.valuet»)'''
+				}
+			}
 			}
 		} else if (expression instanceof DatSingleObject) {
 			return '''«expression.name.name».get(«generateArithmeticExpression(expression.value1,scope)»,«generateArithmeticExpression(expression.value2,scope)»)'''
@@ -551,13 +562,12 @@ class FLYGenerator extends AbstractGenerator {
 					return '''(String) «generateArithmeticExpression(expression.target,scope)»'''
 				}
 				if (expression.type.equals("Integer")) {
-
-					return '''(Integer) «generateArithmeticExpression(expression.target,scope)»'''
-
+		
+					return '''(int)((«generateArithmeticExpression(expression.target,scope)» instanceof Short)? new Integer((Short) «generateArithmeticExpression(expression.target,scope)»):(Integer) «generateArithmeticExpression(expression.target,scope)»)'''
 				}
-				if (expression.type.equals("Float")) {
-
-					return '''(Double) «generateArithmeticExpression(expression.target,scope)»'''
+			
+				if (expression.type.equals("Double")) {
+					return '''(double)((«generateArithmeticExpression(expression.target,scope)» instanceof Float)? new Double((Float) «generateArithmeticExpression(expression.target,scope)»):(Double) «generateArithmeticExpression(expression.target,scope)»)'''
 				}
 				if (expression.type.equals("Dat")) {
 					return '''(Table) «generateArithmeticExpression(expression.target,scope)»'''
@@ -573,7 +583,7 @@ class FLYGenerator extends AbstractGenerator {
 					return '''Integer.parseInt( «generateArithmeticExpression(expression.target,scope)».toString())'''
 
 				}
-				if (expression.type.equals("Float")) {
+				if (expression.type.equals("Double")) {
 					return '''Double.parseDouble( «generateArithmeticExpression(expression.target,scope)».toString())'''
 				}
 			}
@@ -592,6 +602,12 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			s += ")"
 			return s
+		}else if(expression instanceof TimeFunction){
+			if (expression.value != null){
+				return '''System.currentTimeMillis() - «expression.value.name»'''
+			} else {
+				return '''System.currentTimeMillis()'''
+			}
 		} else if (expression instanceof VariableFunction) {
 			return generateVariableFunction(expression, false, scope)
 		} else if (expression instanceof ChannelReceive) {
@@ -1129,11 +1145,7 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
 				 ret+='''
-					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
-					int __initial=0;
-					int __num_proc=4;
-					String __bucket_name="input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket";
-					__s3.createBucket(__bucket_name);
+					
 					for(int __i=0;__i<__num_proc;__i++) {
 						if(__i<(__num_row%__num_proc)) {
 							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
@@ -1143,6 +1155,7 @@ class FLYGenerator extends AbstractGenerator {
 							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
 							__s3.putObject(__putObjectRequest);
 							__f.delete(); 
+							final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
 							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
 							__initial+=(__num_row/__num_proc)+1;
 						}else{
@@ -1158,10 +1171,19 @@ class FLYGenerator extends AbstractGenerator {
 						}
 					}				 
 					
+					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
+					int __initial=0;
+					int __num_proc=4;
+					String __bucket_name="input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket";
+					__s3.createBucket(__bucket_name);
 					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
-					for(int __i=0;__i<4;__i++){
-						final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
+					for(int __i=0;__i<__num_proc;__i++){
+						if(__i<(__num_row%__num_proc)) {
+						
+						}else{
+							
+						}
 						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
@@ -1251,12 +1273,10 @@ class FLYGenerator extends AbstractGenerator {
 		if (object instanceof CastExpression) {
 			if ((object as CastExpression).type.equals("Dat")) { // dat
 				var name = ((object as CastExpression).target as VariableLiteral).variable.name
+				typeSystem.get(scope).put((index as VariableDeclaration).name,name);
 				return '''
 					for(int _«name»=0; _«name»<((Table) «name»).rowCount();_«name»++){
-						HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-						for(String _column:((Table) «name»).columnNames()){
-							«(index as VariableDeclaration).name».put(_column,«name».get(_«name»,«name».columnIndex(_column)));
-						}
+						
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
 								«generateExpression(exp,scope)»
@@ -1328,12 +1348,9 @@ class FLYGenerator extends AbstractGenerator {
 			} else if ((object as VariableLiteral).variable.typeobject.equals('dat') ||
 				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")) {
 				var name = (object as VariableLiteral).variable.name;
+				typeSystem.get(scope).put((index as VariableDeclaration).name,name);
 				return '''
 					for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
-						HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-						for(String _column:«name».columnNames()){
-							«(index as VariableDeclaration).name».put(_column,«name».get(_«name»,«name».columnIndex(_column)));
-						}
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
 								«generateExpression(exp,scope)»
@@ -1383,7 +1400,7 @@ class FLYGenerator extends AbstractGenerator {
 				«generateExpression(expression.then,scope)»
 				«IF expression.^else !== null»
 					else «generateExpression(expression.^else,scope)»
-				«ENDIF»
+				«ENDIF» 
 		'''
 	}
 
@@ -1419,7 +1436,7 @@ class FLYGenerator extends AbstractGenerator {
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
 							try{
-								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
+								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 							}catch(InterruptedException e1){
 								e1.printStackTrace();
 							}
@@ -1427,7 +1444,7 @@ class FLYGenerator extends AbstractGenerator {
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
 							try{
-								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take());
+								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 								e1.printStackTrace();
 							}
 						'''
@@ -1635,7 +1652,10 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof NameObject) {
 			return typeSystem.get(scope).get(exp.name.name + "." + exp.value)
 		} else if (exp instanceof IndexObject) {
-			return typeSystem.get(scope).get(exp.name.name + "[" + exp.valuet + "]")
+			if(exp.value != null)
+				return typeSystem.get(scope).get(exp.name.name + "[" + exp.value + "]")
+			else
+				return typeSystem.get(scope).get(exp.name.name + "[" + exp.valuet + "]")
 		} else if (exp instanceof DatTableObject) {
 			return "Table"
 		}
@@ -1694,7 +1714,9 @@ class FLYGenerator extends AbstractGenerator {
 				}
 				return "Integer"
 			}
-		} else if (exp instanceof VariableFunction) {
+		} else if (exp instanceof TimeFunction){
+			return "Long"
+		}else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("var")) {
 				if (exp.feature.equals("split")) {
 					return "HashMap"
@@ -1779,7 +1801,8 @@ class FLYGenerator extends AbstractGenerator {
 				
 				«FOR exp : parameters»
 					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") »
-						var «(exp as VariableDeclaration).name» = await dataframe.fromCSV(event.Records[0].body);
+						var __«(exp as VariableDeclaration).name» = await dataframe.fromCSV(event.Records[0].body);
+						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toCollection();
 					«ELSE»
 						var «(exp as VariableDeclaration).name» = event.Records[0].body;
 					«ENDIF»
@@ -1795,11 +1818,10 @@ class FLYGenerator extends AbstractGenerator {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
+				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»"}).promise();
 				__params = {
 					QueueName : "«exp.target.name»" 
 				};
-				
-				__data = await sqs.getQueueUrl(__params).promise();
 				
 				__params = {
 					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
@@ -1840,7 +1862,8 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (exp.typeobject.equals("dat")) {
 				typeSystem.get(scope).put(exp.name, "Table")
 				s += '''
-					var «exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
+					var __«exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
+					var «exp.name» = __«exp.name».toCollection();
 				'''
 			}
 		} else if (exp instanceof IfExpression) {
@@ -1963,7 +1986,8 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp.object instanceof CastExpression) {
 			if ((exp.object as CastExpression).type.equals("Dat")) {
 				return '''
-					«((exp.object as CastExpression).target as VariableLiteral).variable.name».toCollection().forEach(async function(«(exp.index as VariableDeclaration).name»,__item,__array){
+				for(__«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
+					var «(exp.index as VariableDeclaration).name» = «((exp.object as CastExpression).target as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
 					«IF exp.body instanceof BlockExpression»
 						«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e,scope)»
@@ -1971,7 +1995,7 @@ class FLYGenerator extends AbstractGenerator {
 					«ELSE»
 						«generateJsExpression(exp.body,scope)»
 					«ENDIF»
-					})
+					}
 				'''
 			} else if ((exp.object as CastExpression).type.equals("Object")) {
 				return '''
@@ -2016,15 +2040,16 @@ class FLYGenerator extends AbstractGenerator {
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				return '''
-					«(exp.object as VariableLiteral).variable.name».toCollection().forEach(async function(«(exp.index as VariableDeclaration).name»,__item,__array){ 
-					«IF exp.body instanceof BlockExpression»
-						«FOR e: (exp.body as BlockExpression).expressions»
-							«generateJsExpression(e,scope)»
-						«ENDFOR»
-					«ELSE»
-						«generateJsExpression(exp.body,scope)»
-					«ENDIF»
-					});
+					for(__«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»){
+						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
+						«IF exp.body instanceof BlockExpression»
+							«FOR e: (exp.body as BlockExpression).expressions»
+								«generateJsExpression(e,scope)»
+							«ENDFOR»
+						«ELSE»
+							«generateJsExpression(exp.body,scope)»
+						«ENDIF»
+					}
 				'''
 			}
 		}
@@ -2066,12 +2091,18 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("random")) {
 				return '''Math.random()'''
+			} 
+		} else if (exp instanceof TimeFunction){
+			if(exp.value != null){
+				return '''(process.hrtime(«exp.value.name»)[0]/1000)'''
+			}else{
+				return '''(process.hrtine()[0]/1000)'''	
 			}
 		} else if (exp instanceof NameObject) {
 			return '''«(exp.name as VariableDeclaration).name».«exp.value»'''
 		} else if (exp instanceof IndexObject) {
-			if (exp.value != null) {
-				return '''«(exp.name as VariableDeclaration).name»["«(exp.value.name)»"]'''
+			if (exp.value !== null) {
+				return '''«(exp.name as VariableDeclaration).name»[«(exp.value.name)»]'''
 			} else {
 				return '''«(exp.name as VariableDeclaration).name»[«exp.valuet»]'''
 			}
