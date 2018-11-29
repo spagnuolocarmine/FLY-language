@@ -19,6 +19,8 @@ FLY is a parallel work-flow scripting imperative language inspired by functional
 
 FLY provides standard scripting language constructs: expressions, relational expressions, boolean operations as well as code comments as in Java. Moreover, FLY  provides several domain specific constructs for parallel/distributed task/data based parallelism.
 
+The following listing shows a simple example of a FLY program, which computes a PI estimation through the Montecarlo Method on an Amazon AWS Lambda backend. Briefly, the PI Monte Carlo estimation algorithm generates a set of random points on a two dimensional Cartesian systems, and counts the number of points that are inside the positive quadrant of a circle of diameter 1.0 centered in the origin point. Given the sum of points, it computes the estimation of PI as S*4.0/NN, where S is the number of points inside the positive quadrant of the circle and N is the total number of generated random points. 
+
 ```
  env aws = [type:"aws",access_key:"amazon_aws_access_key", secret_key:"amazon_aws_secret_key", region:"us-east-2"]   
   channel ch on aws              
