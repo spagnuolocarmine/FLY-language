@@ -121,6 +121,7 @@ class FLYGenerator extends AbstractGenerator {
 		import tech.tablesaw.columns.Column;
 		import tech.tablesaw.selection.Selection;
 		import tech.tablesaw.table.Rows;
+		import tech.tablesaw.api.Row;
 		import java.util.concurrent.LinkedTransferQueue;
 		import java.util.concurrent.ExecutorService;
 		import java.util.concurrent.Executors;
@@ -222,7 +223,22 @@ class FLYGenerator extends AbstractGenerator {
 										
 				«ENDIF»	
 			«ENDFOR»	
-		
+			
+			private static String __generateString(Table t) {
+					StringBuilder b = new StringBuilder();
+					b.append("[");
+					int i_r = t.rowCount();
+					for(Row r : t) {
+						b.append('{');
+						for (int i=0;i< r.columnCount();i++) {
+							b.append("\""+ r.columnNames().get(i) +"\":"+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
+						}
+						b.append("}"+(((i_r != 1 ))?",":""));
+						i_r--;
+					}
+					b.append("]");
+					return b.toString();
+				}
 		}
 	'''
 
@@ -604,7 +620,7 @@ class FLYGenerator extends AbstractGenerator {
 			return s
 		}else if(expression instanceof TimeFunction){
 			if (expression.value != null){
-				return '''System.currentTimeMillis() - «expression.value.name»'''
+				return '''( System.currentTimeMillis() - «expression.value.name» )'''
 			} else {
 				return '''System.currentTimeMillis()'''
 			}
@@ -1145,49 +1161,55 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
 				 ret+='''
-					
+					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
+					int __initial=0;
+					int __num_proc=1000;
+					ArrayList<Integer> __splits = new ArrayList<Integer>();
 					for(int __i=0;__i<__num_proc;__i++) {
 						if(__i<(__num_row%__num_proc)) {
-							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
-							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
-							File __f = new File("table_"+__i+".csv");
-							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
-							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-							__s3.putObject(__putObjectRequest);
-							__f.delete(); 
-							final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
-							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
+							__splits.add( __initial+((__num_row/__num_proc)+1));
+«««							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
+«««							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
+«««							File __f = new File("table_"+__i+".csv");
+«««							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
+«««							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+«««							__s3.putObject(__putObjectRequest);
+«««							__f.delete(); 
+«««							final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
+«««							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
 							__initial+=(__num_row/__num_proc)+1;
 						}else{
-							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+(__num_row/__num_proc)));
-							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
-							File __f = new File("table_"+__i+".csv");
-							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
-							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-							__s3.putObject(__putObjectRequest);
-							//System.out.println(s3.getUrl(bucket_name, "table_"+i));
-							__f.delete();
+							__splits.add( __initial+((__num_row/__num_proc)));
+«««							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+(__num_row/__num_proc)));
+«««							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
+«««							File __f = new File("table_"+__i+".csv");
+«««							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
+«««							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+«««							__s3.putObject(__putObjectRequest);
+«««							//System.out.println(s3.getUrl(bucket_name, "table_"+i));
+«««							__f.delete();
 							__initial+=(__num_row/__num_proc);
 						}
 					}				 
 					
-					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
-					int __initial=0;
-					int __num_proc=4;
-					String __bucket_name="input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket";
-					__s3.createBucket(__bucket_name);
+				
 					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
 					for(int __i=0;__i<__num_proc;__i++){
-						if(__i<(__num_row%__num_proc)) {
-						
+						final int __start;
+						final int __end;
+						if(__i==0) {
+							__start=0;
 						}else{
-							
+							__start=__splits.get(__i-1);
 						}
+						__end = __splits.get(__i);
 						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
+								//creare la stringa 
+								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)));
 								__sqs.sendMessage(new SendMessageRequest().
 												withQueueUrl(__input_queue_url).
 												withMessageBody(__s_temp)
@@ -1794,16 +1816,16 @@ class FLYGenerator extends AbstractGenerator {
 				var AWS = require('aws-sdk');
 				var sqs = new AWS.SQS();
 			«ENDIF»
-			var dataframe = require('dataframe-js').DataFrame;
+			var __dataframe = require('dataframe-js').DataFrame;
 			let __params;
 			let __data;
 			
 			exports.handler = async (event,context) => {
 				
 				«FOR exp : parameters»
-				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Talbe")»
-						var __«(exp as VariableDeclaration).name» = await dataframe.fromCSV(event.Records[0].body);
-						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toCollection();
+				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event.Records[0].body));
+						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray()
 					«ELSE»
 						var «(exp as VariableDeclaration).name» = event.Records[0].body;
 					«ENDIF»
@@ -1863,8 +1885,8 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (exp.typeobject.equals("dat")) {
 				typeSystem.get(scope).put(exp.name, "Table")
 				s += '''
-					var __«exp.name» = await dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
-					var «exp.name» = __«exp.name».toCollection();
+					var __«exp.name» = await __dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
+					var «exp.name» = __«exp.name».toArray()
 				'''
 			}
 		} else if (exp instanceof IfExpression) {
@@ -1987,8 +2009,9 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp.object instanceof CastExpression) {
 			if ((exp.object as CastExpression).type.equals("Dat")) {
 				return '''
-				for(__«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
-					var «(exp.index as VariableDeclaration).name» = «((exp.object as CastExpression).target as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
+				for(var __«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name»»){
+					
+					var «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclaration).name»[__«(exp.index as VariableDeclaration).name»];
 					«IF exp.body instanceof BlockExpression»
 						«FOR e: (exp.body as BlockExpression).expressions»
 							«generateJsExpression(e,scope)»
@@ -1996,7 +2019,17 @@ class FLYGenerator extends AbstractGenerator {
 					«ELSE»
 						«generateJsExpression(exp.body,scope)»
 					«ENDIF»
-					}
+				}
+«««				for(__«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
+«««					var «(exp.index as VariableDeclaration).name» = «((exp.object as CastExpression).target as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
+«««					«IF exp.body instanceof BlockExpression»
+«««						«FOR e: (exp.body as BlockExpression).expressions»
+«««							«generateJsExpression(e,scope)»
+«««						«ENDFOR»
+«««					«ELSE»
+«««						«generateJsExpression(exp.body,scope)»
+«««					«ENDIF»
+«««					}
 				'''
 			} else if ((exp.object as CastExpression).type.equals("Object")) {
 				return '''
@@ -2041,7 +2074,7 @@ class FLYGenerator extends AbstractGenerator {
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				return '''
-					for(__«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»){
+					for(var __«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name» ){
 						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
@@ -2051,6 +2084,16 @@ class FLYGenerator extends AbstractGenerator {
 							«generateJsExpression(exp.body,scope)»
 						«ENDIF»
 					}
+«««					for(__«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»){
+«««						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
+«««						«IF exp.body instanceof BlockExpression»
+«««							«FOR e: (exp.body as BlockExpression).expressions»
+«««								«generateJsExpression(e,scope)»
+«««							«ENDFOR»
+«««						«ELSE»
+«««							«generateJsExpression(exp.body,scope)»
+«««						«ENDIF»
+«««					}
 				'''
 			}
 		}
@@ -2095,9 +2138,9 @@ class FLYGenerator extends AbstractGenerator {
 			} 
 		} else if (exp instanceof TimeFunction){
 			if(exp.value != null){
-				return '''(process.hrtime(«exp.value.name»)[0]/1000)'''
+				return '''(process.hrtime(«exp.value.name»))'''
 			}else{
-				return '''(process.hrtine()[0]/1000)'''	
+				return '''(process.hrtime())'''	
 			}
 		} else if (exp instanceof NameObject) {
 			return '''«(exp.name as VariableDeclaration).name».«exp.value»'''
@@ -2252,10 +2295,10 @@ class FLYGenerator extends AbstractGenerator {
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 128 --timeout 300
+		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 1024 --timeout 300
 		
 		while [ $? -ne 0 ]; do
-			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 128 --timeout 300
+			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 1024 --timeout 300
 		done
 		
 		echo "lambda function created"
