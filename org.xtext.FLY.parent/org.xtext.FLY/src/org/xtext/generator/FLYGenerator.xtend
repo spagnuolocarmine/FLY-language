@@ -183,6 +183,9 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.Bucket;
 		import com.amazonaws.services.s3.model.CannedAccessControlList;
 		import com.amazonaws.services.s3.model.PutObjectRequest;
+		import com.google.gson.Gson;
+		import com.google.gson.reflect.TypeToken;
+		
 		
 		
 		public class «name» {
@@ -387,7 +390,22 @@ class FLYGenerator extends AbstractGenerator {
 					'''
 				}
 
-			} else { // if is an Expression to evaluate
+			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
+					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("aws") ){
+						if((dec.right as CastExpression).type.equals("Object")){
+							typeSystem.get(scope).put(dec.name, "HashMap")
+							return '''
+								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+								HashMap «dec.name» = new Gson().fromJson(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»,new TypeToken<HashMap<String, String>>() {}.getType());
+							'''
+						}
+					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") ){
+						typeSystem.get(scope).put(dec.name, "HashMap")
+						return '''
+							HashMap<Object,Object> «dec.name» = (HashMap<Object,Object>) «((dec.right as CastExpression).target as ChannelReceive).target.name».take(); 
+						'''
+					}
+				}  else { // if is an Expression to evaluate
 				typeSystem.get(scope).put(dec.name,
 					valuateArithmeticExpression(dec.right as ArithmeticExpression, scope))
 				//println(dec.name + " --- " + typeSystem.get(scope).get(dec.name));
@@ -1449,6 +1467,11 @@ class FLYGenerator extends AbstractGenerator {
 						return '''
 							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 						'''
+					} else if((assignment.value as CastExpression).type.equals("Object")){
+						return '''
+							String __res_«((assignment.value as CastExpression).target as ChannelReceive).target.name» = «((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString();
+							HashMap «generateArithmeticExpression(assignment.feature,scope)» «assignment.op» new Gson().fromJson(__res_«((assignment.value as CastExpression).target as ChannelReceive).target.name»,new TypeToken<HashMap<String, String>>() {}.getType();)
+						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
 							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
@@ -2295,10 +2318,10 @@ class FLYGenerator extends AbstractGenerator {
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 1024 --timeout 300
+		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
 		
 		while [ $? -ne 0 ]; do
-			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 1024 --timeout 300
+			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
 		done
 		
 		echo "lambda function created"
