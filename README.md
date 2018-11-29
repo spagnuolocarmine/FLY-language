@@ -1,10 +1,10 @@
 # The FLY programming Language
 
-FLY is an open source Domain Specific Language for scientific computing on the cloud.
+FLY is an open source Domain Specific Language for scientific computing on the cloud exploiting FaaS.
 
 ## General Information
 
-FLY is written using Xtext a framework for development of programming languages and domain-specific languages. WIND code is transformed in pure Java code that you can run on a Java Virtual Machine.
+FLY is written using Xtext a framework for development of programming languages and domain-specific languages. FLY code is transformed in pure Java code that you can run on a Java Virtual Machine.
 
 ## Getting Started
 
@@ -12,11 +12,22 @@ FLY is designed as a scripting language that use as run-time environment, the lo
 
 ???????????????????
 
-## Compiler Build Instructions
+## Compiler 
+
+### Requirements
+
+### Build Instructions
 
 ?????????????????????????????????????
 
-## Run the KNN Example
+## Developing using FLY
+
+### Requirements
+
+### Compile your FLY program
+
+## K-nearest neighbors FLY example
+
 ?????????????????????????????????????????????????
 
 
