@@ -14,21 +14,32 @@ FLY is designed as a scripting language that use as run-time environment, the lo
 
 (under costruction)
 
-## Compiler 
+## FLY Compiler 
+-----------------------------------------------------------------------------------------------------------
 
 ### Requirements
+
+- Jaava 8 (or grater)
+- Eclipse IDE
+- Xtext (www.eclipse.org/Xtext)
 
 ### Build Instructions
 
 ?????????????????????????????????????
 
-## Developing using FLY
+## FLY Programming
+-------------------------------------------------------------------------------------------------------------
 
 ### Requirements
 
+- Ubuntu or OSX OS
+- Java 8 (or greater)
+- Apache Maven 3 or greater)
+- Amazon AWS CLI and SDK
+
 ### Compile your FLY program
 
-## K-nearest neighbors FLY example
+### K-nearest neighbors FLY example
 
 ?????????????????????????????????????????????????
 
