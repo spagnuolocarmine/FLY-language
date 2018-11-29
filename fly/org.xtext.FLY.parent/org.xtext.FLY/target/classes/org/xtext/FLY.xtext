@@ -1,0 +1,298 @@
+grammar org.xtext.FLY with org.eclipse.xtext.common.Terminals
+
+import "http://www.eclipse.org/emf/2002/Ecore" as ecore
+generate fLY "http://www.xtext.org/FLY"
+
+Fly:
+	elements+=Expression*
+;
+
+Expression returns Expression:
+	Assignment 			|
+	BlockExpression 	|
+	IfExpression 		|
+	ForExpression 		|
+	WhileExpression 	|
+	PrintExpression 	|
+	FunctionDefinition 	|
+	FunctionReturn 		|
+	FlyFunctionCall 	|
+	VariableDeclaration |
+	ChannelSend 		|
+	ChannelReceive 		|
+	LocalFunctionCall 	|
+	SortExpression 		|
+	AtomicExpression 	|
+	VariableFunction
+;
+
+AtomicExpression:
+	'atomic' expressions=BlockExpression
+;
+
+SortExpression:
+	'sort' type=('asc' | 'desc') target=[VariableDeclaration] 'on' taget=ID
+;
+
+Assignment:
+	{Assignment} feature=VariableLiteral op=OpAs value=ArithmeticExpression | 
+	{Assignment} feature_obj=ObjectLiteral op=OpAs value=ArithmeticExpression 
+;
+
+OpAs:
+	'='	| 
+	'+='
+;
+
+PrintExpression :
+	{PrintExpression} 'println' print = ArithmeticExpression 
+;
+
+IfExpression:
+	{IfExpression} 	'if' '(' cond=ArithmeticExpression ')' then=Expression (=>'else' else=Expression)?
+;
+
+ForExpression:
+	{ForExpression}
+	'for' index=VariableFor 'in' object=ArithmeticExpression body=Expression 
+;
+
+VariableFor:
+	{VariableDeclaration}
+	 name=ID
+;
+
+
+WhileExpression:
+	{WhileExpression}
+	'while' '(' cond=ArithmeticExpression ')' body=Expression
+;
+
+BlockExpression:
+	{BlockExpression}
+	'{' expressions+=Expression* '}'
+;
+
+VariableDeclaration:
+	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))	|
+	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=Object)) 								|
+	{RandomDeclaration} typeobject='random' =>(name = ID) 																		|
+	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 										|
+	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)													|
+	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)											|
+	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])
+;
+
+Object:
+	{NameObjectDef}  '[' (features+=FeautureName)? (',' features+=FeautureName)* ']' 
+;
+
+DeclarationObject:
+	{DeclarationObject} '[' features+=DeclarationFeature (',' features+=DeclarationFeature)* ']'
+;
+
+DeclarationFeature:
+	{DeclarationFeature} feature=ID ':' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
+;
+
+FeautureName:
+	feature=ID ':' value=ArithmeticExpression 	| 
+	value=ArithmeticExpression ;
+
+ObjectLiteral:
+	{NameObject} name=[VariableDeclaration] =>( "." value=ID)																					| 
+	{IndexObject} name=[VariableDeclaration] =>("[" valuet=INT "]") 																			| 
+	{IndexObject} name=[VariableDeclaration] =>("[" value=[VariableDeclaration] "]") 															| 
+	{DatSingleObject} name=[VariableDeclaration] =>("["(value1=(NumberLiteral | StringLiteral)) "," (value2=(NumberLiteral|StringLiteral)) "]")	|
+	{DatTableObject} name=[VariableDeclaration] =>("[" (range1=RangeLiteral | range1_t=NumberLiteral) "," (range2=RangeLiteral) "]")
+;
+
+RangeLiteral:
+	{RangeLiteral} "[" value1=INT ":" value2=INT "]" 
+;
+
+MathFunction:
+	{MathFunction} 'Math' '.' feature=ID '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')';
+
+VariableFunction:
+	{VariableFunction} target=[VariableDeclaration] '.' feature=ID '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')'
+;	
+
+FunctionReturn:
+	{FunctionReturn} 'return' expression=ArithmeticExpression
+;
+
+FunctionDefinition:
+	{FunctionDefinition}
+	'func' name=ID '(' parameters+=Params? (',' parameters+=Params)* ')' body=BlockExpression
+;
+
+Params returns Expression:
+	{VariableDeclaration} name=ID
+;
+
+ChannelSend:
+	{ChannelSend}
+	target=[ChannelDeclaration] '!' expression=ArithmeticExpression 
+;
+
+ChannelReceive:
+	{ChannelReceive} target=[ChannelDeclaration]'?'
+;
+
+
+LocalFunctionCall:
+	{LocalFunctionCall} target=[FunctionDefinition]  '(' input=LocalFunctionInput ')'
+;
+
+LocalFunctionInput:
+	{LocalFunctionInput} inputs+=ArithmeticExpression? (',' inputs+=ArithmeticExpression)* 
+;
+
+FlyFunctionCall:
+	{FlyFunctionCall} (isAsync?='async')? 'fly' target=[FunctionDefinition]  
+	input=FunctionInput? 'on' environment=[EnvironmentDeclaration] (is_then?='then' then=[FunctionDefinition])? (is_thenall?='thenall' thenall=[FunctionDefinition])? 
+;
+
+FunctionInput:
+	{FunctionInput} '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')' | 
+	{FunctionInput} is_for_index?='in' f_index=ArithmeticExpression
+;
+
+//rules for Aritmethic Expression
+
+ArithmeticExpression returns ArithmeticExpression:
+	OrExpression
+;
+
+OrExpression returns ArithmeticExpression:
+	AndExpression (=>({BinaryOperation.left=current} feature=OpOr) right=AndExpression)*
+;
+
+OpOr:
+	'or'
+;
+
+AndExpression returns ArithmeticExpression:
+	EqualityExpression (=>({BinaryOperation.left=current} feature=OpAnd) right=EqualityExpression)*
+;
+
+OpAnd:
+	'and'
+;
+
+EqualityExpression returns ArithmeticExpression:
+	RelationalExpression (=>({BinaryOperation.left=current} feature=OpEquality) right=RelationalExpression)*	
+;
+
+OpEquality:
+	'==' | '!='
+;
+
+RelationalExpression returns ArithmeticExpression:
+	AdditiveExpression (=>({BinaryOperation.left=current} feature=OpCompare) right=AdditiveExpression)*
+;
+
+OpCompare:
+	'>=' | '<=' | '<' | '>'
+;
+
+AdditiveExpression returns ArithmeticExpression:
+	MultiplicativeExpression (=>({BinaryOperation.left=current} feature=OpAdd) right=MultiplicativeExpression)*
+;
+
+OpAdd:
+	'+' | '-'
+;
+
+MultiplicativeExpression returns ArithmeticExpression:
+	UnaryOperation (=>({BinaryOperation.left=current} feature=OpMulti) right=UnaryOperation)*
+;
+
+OpMulti:
+	'*' | '/'
+;
+
+UnaryOperation returns ArithmeticExpression:
+	{UnaryOperation} feature=OpUnary operand=UnaryOperation |
+	CastExpression
+;
+
+OpUnary:
+	'not' | '-' | '+'
+;
+
+CastExpression returns ArithmeticExpression:
+	PostfixOperation (=>({CastExpression.target=current} op=('as' | 'parse') ) type=Type)*
+;
+
+Type:
+	'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double'
+;
+
+PostfixOperation returns ArithmeticExpression:
+	PrimaryExpression =>({PostfixOperation.operand=current} feature=OpPostfix)?
+;
+
+OpPostfix:
+	'++' | '--'
+;
+
+PrimaryExpression returns ArithmeticExpression:
+	ParenthesizedExpression	|
+	LiteralExpression 		|
+	LocalFunctionCall 		|
+	MathFunction			|
+	ChannelSend 			|
+	ChannelReceive 			|
+	TimeFunction			|
+	VariableFunction		
+;
+
+LiteralExpression returns ArithmeticExpression:
+	BooleanLiteral 	|
+	NumberLiteral 	|
+	StringLiteral 	|
+	ObjectLiteral 	|
+	VariableLiteral |
+	RangeLiteral 	|
+	FloatLiteral
+;
+
+TimeFunction returns ArithmeticExpression:
+	{TimeFunction} 'time' '(' (value = [VariableDeclaration] )* ')' 
+;
+
+BooleanLiteral returns ArithmeticExpression:
+	{BooleanLiteral} value="false" |{BooleanLiteral} value="true"
+;
+
+NumberLiteral returns ArithmeticExpression:
+	{NumberLiteral} value=INT
+;
+
+StringLiteral returns ArithmeticExpression:
+	{StringLiteral} value=STRING
+;
+
+FloatLiteral returns ArithmeticExpression:
+	{FloatLiteral} value=FLOAT
+;
+
+
+VariableLiteral returns ArithmeticExpression:
+	{VariableLiteral} variable=[VariableDeclaration]  
+;
+
+ParenthesizedExpression returns ArithmeticExpression:
+	{ParenthesizedExpression}
+	'(' expression=ArithmeticExpression')'
+;
+
+terminal FLOAT returns ecore::EFloat:
+	INT '.' INT;
+
+@Override 
+terminal ID:
+	('a'..'z'|'A'..'Z'|'$') ('a'..'z'|'A'..'Z'|'$'|'_'|'0'..'9')*
+;

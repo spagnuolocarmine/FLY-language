@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<?artifactRepository version='1.1.0'?>
+<artifacts size='2'>
+  <artifact classifier='osgi.bundle' id='org.xtext.FLY' version='1.0.0.201811141538'>
+    <properties size='5'>
+      <property name='artifact.size' value='536347'/>
+      <property name='download.size' value='536347'/>
+      <property name='maven-groupId' value='org.xtext.FLY'/>
+      <property name='maven-artifactId' value='org.xtext.FLY'/>
+      <property name='maven-version' value='1.0.0-SNAPSHOT'/>
+    </properties>
+  </artifact>
+  <artifact classifier='osgi.bundle' id='org.xtext.FLY.source' version='1.0.0.201811141538'>
+    <properties size='6'>
+      <property name='artifact.size' value='397979'/>
+      <property name='download.size' value='397979'/>
+      <property name='maven-groupId' value='org.xtext.FLY'/>
+      <property name='maven-artifactId' value='org.xtext.FLY'/>
+      <property name='maven-version' value='1.0.0-SNAPSHOT'/>
+      <property name='maven-classifier' value='sources'/>
+    </properties>
+  </artifact>
+</artifacts>

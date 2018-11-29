@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feature id="org.xtext.FLY.feature.source" version="1.0.0.201811141538" label="FLY Feature  Developer Resources">
+  <includes id="org.xtext.FLY.feature" version="1.0.0.201811141538"/>
+  <plugin id="org.xtext.FLY.source" version="1.0.0.201811141538" download-size="0" install-size="0" unpack="false"/>
+  <plugin id="org.xtext.FLY.ide.source" version="1.0.0.201811141538" download-size="0" install-size="0" unpack="false"/>
+  <plugin id="org.xtext.FLY.ui.source" version="1.0.0.201811141538" download-size="0" install-size="0" unpack="false"/>
+</feature>
