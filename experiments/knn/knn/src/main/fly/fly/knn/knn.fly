@@ -1,0 +1,88 @@
+dat test_set = [name:"test",path:"20NG-test.csv",type:"csv",sep:","]
+//env aws = [type:"aws",access_key:"YOUR-KEY",secret_key:"YOUR-SECRET-KEY",region:"us-east-2"]   
+env local = [type:"local"] 
+ 
+channel result on local /*aws*/                
+var c = time()     
+ 
+func knn(test){     
+	var t = time()
+	dat train_set = [name:"train",path:"20NG-train.csv",type:"csv",sep:","]   
+	println "loading time "+time(t)  
+	var k = 3
+	var res = []
+	var t_res=0 
+	for p1 in test {  
+		var cnt=0    
+		var distances=[]    
+		var neighbors = []   
+
+		for p2 in train_set { 
+			var sum = 0.0
+			for i in [0:1024]{
+				sum += Math.pow(p1[i] as Integer - p2[i] as Integer,2)  
+			} 
+			var dist_eucl = Math.sqrt(sum)
+			if(cnt < k){
+				distances[cnt] = dist_eucl
+				neighbors[cnt] = p2[6]
+				cnt+=1
+			}else{
+				var max=0.0
+				var i_max=0
+				for d in distances{  
+					if(d.v as Double > max){ 
+						max=d.v as Double  
+						i_max=d.k as Integer
+					}
+				}
+				if(max > dist_eucl){
+					distances[i_max]=dist_eucl  
+					neighbors[i_max]= p2[6] 	
+				}
+				
+			} 
+		}   
+		var class1=0
+		var class2=0 
+		for p in neighbors{
+			var neigh_class = p.v as Integer
+			if (neigh_class == 0) 
+				class1+=1
+			else  
+				class2+=1  
+			
+		}
+		var predicted_Class = -1
+		if (class1 > class2 )predicted_Class = 0
+		else predicted_Class = 1
+		
+		var r = -1
+		if(p1[6] as Integer == predicted_Class) r = 1
+		else r = 0
+		res[t_res] = r
+		t_res+=1
+		println "Instance test: "+r+ " "+p1[6] as Integer +"=" +predicted_Class +" elapsed"+ time(t) 
+		  
+	}  
+	result!res    
+}
+
+func estimate (){ 
+	var correct = 0 
+	var nmess = 0
+	var totmess = 4 /*function  for aws is 1000*/ 
+	for i in [0:4]{
+		var res = result? as Object
+		for j in res{
+			correct+=j.v parse Integer    
+			nmess+=1
+			println "RCV " + nmess +"/"+totmess +" correct "+ correct  
+		}
+	}
+	println "Accuracy " + (correct parse Double /3000)  
+}
+
+
+fly knn in test_set on local /*aws*/ thenall estimate     
+println "elapsed " + (time(c))
