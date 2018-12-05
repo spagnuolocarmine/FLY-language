@@ -23,7 +23,8 @@ hs_err_pid*
 /.metadata/
 
 # Generated files
-/.project
+.project
+.settings
 bin
 build
 target
