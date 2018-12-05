@@ -17,6 +17,7 @@ import org.eclipse.xtext.scoping.Scopes
 import org.xtext.fLY.ForExpression
 import org.xtext.fLY.DatDeclaration
 import org.xtext.fLY.RandomDeclaration
+import org.xtext.fLY.EnvironmentDeclaration
 
 /**
  * This class contains custom scoping description.
@@ -77,6 +78,10 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				typeof(ChannelDeclaration))) {
 				elements.add(element)
 			}
+			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
+				typeof(EnvironmentDeclaration))) {
+				elements.add(element)
+			}
 			// ----------------------------
 			for (el : parent.parameters) {
 				elements.add(el)
@@ -92,7 +97,6 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 
 		val allElements = exp.getContainerOfType(typeof(Fly)).elements
 		val containingElement = allElements.findFirst[isAncestor(it, exp)]
-		println(allElements.indexOf(containingElement) + " ----- " + containingElement + " ------- " + exp)
 		val declaration = newArrayList()
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
 			typeof(VariableDeclaration))) {

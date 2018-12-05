@@ -74,12 +74,12 @@ BlockExpression:
 ;
 
 VariableDeclaration:
-	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))	|
-	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=Object)) 								|
-	{RandomDeclaration} typeobject='random' =>(name = ID) 																		|
-	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 										|
-	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)													|
-	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)											|
+	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))									|
+	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=DeclarationObject) (onCloud?='on' environment=[EnvironmentDeclaration])? )		|
+	{RandomDeclaration} typeobject='random' =>(name = ID) 																										|
+	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 																		|
+	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)																					|
+	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)																			|
 	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])
 ;
 
@@ -92,11 +92,11 @@ DeclarationObject:
 ;
 
 DeclarationFeature:
-	{DeclarationFeature} feature=ID ':' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
+	{DeclarationFeature} feature=ID '=' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
 ;
 
 FeautureName:
-	feature=ID ':' value=ArithmeticExpression 	| 
+	feature=ID '=' value=ArithmeticExpression 	| 
 	value=ArithmeticExpression ;
 
 ObjectLiteral:
@@ -108,7 +108,7 @@ ObjectLiteral:
 ;
 
 RangeLiteral:
-	{RangeLiteral} "[" value1=INT ":" value2=INT "]" 
+	{RangeLiteral} "[" (value1=INT | value_l1=[VariableDeclaration]) ":" (value2=INT | value_l2=[VariableDeclaration]) "]" 
 ;
 
 MathFunction:

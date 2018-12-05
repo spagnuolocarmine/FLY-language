@@ -58,6 +58,7 @@ import javax.lang.model.type.ArrayType
 import org.eclipse.xtext.findReferences.TargetURIs.Key
 import java.util.List
 import org.xtext.fLY.TimeFunction
+import org.eclipse.xtend.lib.macro.declaration.Declaration
 
 /**
  * Generates code from your model files on save.
@@ -70,6 +71,8 @@ class FLYGenerator extends AbstractGenerator {
 	HashMap<String,String> fly_function_names = new HashMap<String, String>();
 	var name = ""
 	var func_ID = 0
+	var file_deploy_id = 0
+	var id_execution = System.currentTimeMillis
 	var last_func_result = null
 	var __local = false
 	Resource res = null
@@ -82,6 +85,7 @@ class FLYGenerator extends AbstractGenerator {
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
 			fly_function_names.put(element.target.name,element.target.name+"_"+System.currentTimeMillis);
 		}
+		
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
 		fsa.generateFile(name + ".java", resource.compileJava)
@@ -153,16 +157,6 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.lambda.model.CreateFunctionResult;
 		import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
 		import com.amazonaws.services.lambda.model.FunctionCode;
-«««		import com.amazonaws.services.sns.AmazonSNS;
-«««		import com.amazonaws.services.sns.AmazonSNSClient;
-«««		import com.amazonaws.services.sns.model.CreateTopicRequest;
-«««		import com.amazonaws.services.sns.model.CreateTopicResult;
-«««		import com.amazonaws.services.sns.model.DeleteTopicRequest;
-«««		import com.amazonaws.services.sns.model.PublishRequest;
-«««		import com.amazonaws.services.sns.model.PublishResult;
-«««		import com.amazonaws.services.sns.model.SubscribeRequest;
-«««		import com.amazonaws.services.sns.model.SubscribeResult;
-«««		import com.amazonaws.services.sns.model.UnsubscribeRequest;
 		import com.amazonaws.services.sqs.AmazonSQS;
 		import com.amazonaws.services.sqs.model.Message;
 		import com.amazonaws.services.sqs.AmazonSQSClient;
@@ -183,6 +177,9 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.Bucket;
 		import com.amazonaws.services.s3.model.CannedAccessControlList;
 		import com.amazonaws.services.s3.model.PutObjectRequest;
+		import com.amazonaws.services.s3.model.ListObjectsV2Result;
+		import com.amazonaws.services.s3.model.PutObjectRequest;
+		import com.amazonaws.services.s3.model.S3ObjectSummary;
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
 		
@@ -190,34 +187,42 @@ class FLYGenerator extends AbstractGenerator {
 		
 		public class «name» {
 			
+			static HashMap<String,HashMap<String, Integer>> __fly_environment = new HashMap<String,HashMap<String,Integer>>();
 			
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof ChannelDeclaration»
 					«generateChannelDeclaration(element)»	
 				«ENDIF»
 				«IF element instanceof EnvironmentDeclaration»
-					«generateEnvironmentDeclarationForCloud(element)»
+					«generateEnvironmentDeclaration(element)»
 				«ENDIF»
 			«ENDFOR»
 			
-			static ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
-			«IF __local»
-				static LinkedTransferQueue<String> __asyncTermination = new LinkedTransferQueue<String>(); 
-			«ENDIF»
-			
 			static HashMap<String,String> __fly_function_names = new HashMap<String,String>();
 			
+			//static long  __id_execution = System.currentTimeMillis();
+			
 			public static void main(String[] args) throws Exception{
+				«FOR element : resource.allContents.toIterable.filter(EnvironmentDeclaration)»
+					«setEnvironmentDeclarationLimits(element)»
+				«ENDFOR»
+				
+				«IF resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud].length > 0»
+					if(!__s3.doesBucketExist("bucket-«name»-«id_execution»")){
+						__s3.createBucket("bucket-«name»-«id_execution»");
+					}
+				«ENDIF»
+				
+				«FOR element: resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud]»
+						«deployFileOnCloud(element,file_deploy_id++)»
+						
+				«ENDFOR»
 								
 				«FOR element : resource.allContents.toIterable.filter(Expression)»
 					«IF checkBlock(element.eContainer)==false»
 						«generateExpression(element,"main")»
 					«ENDIF»
 				«ENDFOR»
-				
-				«IF __local »
-					thread_pool.shutdown();
-				«ENDIF»
 			}
 				
 			«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
@@ -244,6 +249,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 		}
 	'''
+		
 
 	def generateExpression(Expression element, String scope) {
 		'''
@@ -256,9 +262,6 @@ class FLYGenerator extends AbstractGenerator {
 			«IF element instanceof RandomDeclaration»
 				«generateRandomDeclaration(element)»
 			«ENDIF»
-«««			«IF element instanceof EnvironmentDeclaration»
-«««				«generateEnvironmentDeclaration(element)»
-«««			«ENDIF»
 			«IF element instanceof Assignment»
 				«generateAssignment(element,scope)»
 			«ENDIF»
@@ -413,6 +416,30 @@ class FLYGenerator extends AbstractGenerator {
 			}
 		}
 	}
+	
+	def deployFileOnCloud(DatDeclaration dec,long id) {
+			var path = (dec.right as DeclarationObject).features.get(1).value_s
+			if( ! path.contains("https://")){ // local 
+					var name_file_ext = path.split("/").last
+					var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
+					return '''
+						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-«name»-«id_execution»");
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«name_file»_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals("«name_file_ext»")){
+						    	__exists_«name_file»_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«name_file»_«id»){
+							__s3.putObject("bucket-«name»-«id_execution»", "«name_file_ext»" , new File("«path»"));
+						}
+					'''
+			} 
+
+		}
+	
 
 //	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
 //		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
@@ -424,13 +451,21 @@ class FLYGenerator extends AbstractGenerator {
 //		}
 //	}
 
-	def generateEnvironmentDeclarationForCloud(EnvironmentDeclaration dec) {
+	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("aws")) {
+		if (env.equals("local")){
+			return '''
+				static ExecutorService thread_pool = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
+			'''
+		}
+		else if (env.equals("aws")) {
 			var access_id_key = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
 			var secret_access_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
 			var region = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+			var threads = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+			var memory = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
 			return '''
+				
 				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
 				
 				static AmazonSQS __sqs  = AmazonSQSClient.builder()
@@ -455,33 +490,49 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		}
 	}
+	
+	def setEnvironmentDeclarationLimits(EnvironmentDeclaration dec){
+		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
+		if (env.equals("local")){
+			return '''
+				__fly_environment.put("«env»", new HashMap<String,Integer>());
+				__fly_environment.get("«env»").put("nthread",«((dec.right as DeclarationObject).features.get(1)).value_t»);
+			'''
+		}
+		else if (env.equals("aws")) {
+			var threads = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_t
+			var memory = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_t
+			return '''
+				__fly_environment.put("«env»", new HashMap<String,Integer>());
+				__fly_environment.get("«env»").put("nthread",«threads»);
+				__fly_environment.get("«env»").put("memory",«memory»);
+			'''
+		}
+	}
 
 	def generateChannelDeclaration(ChannelDeclaration declaration) {
-		//var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		//if (env.equals("local")) {
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
 			'''
-		//}
 	}
 
 	def generateChanelDeclarationForCloud(ChannelDeclaration declaration) { // create a queue on AWS
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
 		if (env.equals("aws")) {
 			return '''
-				__sqs.createQueue(new CreateQueueRequest("«declaration.name»"));
+				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_«name»_«id_execution»"+));
 				
 				for(int __i=0;__i<4;__i++){
 					thread_pool.submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
 							while(true) {
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»").getQueueUrl()).
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»_«name»_«id_execution»").getQueueUrl()).
 										withWaitTimeSeconds(20).withMaxNumberOfMessages(10);
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
 								for(Message msg : __res.getMessages()) { 
 									«declaration.name».put(msg.getBody());
-									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»").getQueueUrl(), msg.getReceiptHandle());
+									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»_«name»_«id_execution»").getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
 						}
@@ -493,13 +544,14 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateDatDeclaration(DatDeclaration dec, String scope) {
 		typeSystem.get(scope).put(dec.name, "Table")
-		if (dec.right instanceof NameObjectDef) {
+		if (dec.right instanceof DeclarationObject) {
+			var path = (dec.right as DeclarationObject).features.get(1).value_s
 			return '''
 				Table «dec.name» = Table.read().csv(CsvReadOptions
-					.builder(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(1).value,scope)»)
+					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»-«id_execution»/«path»" «ELSE»"«path»"«ENDIF»)
 					.maxNumberOfColumns(5000)
-					.tableName(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(0).value,scope)»)
-					.separator('«(generateArithmeticExpression((dec.right as NameObjectDef).features.get(3).value,scope) as String).charAt(1)»')
+					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
+					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
 				);
 			'''
 		} else {
@@ -540,8 +592,10 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
-			
-			if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
+			if(expression.name instanceof EnvironmentDeclaration){
+				return '''__fly_environment.get(«expression.name.name»).get("«expression.value»")'''
+			}
+			else if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
 				return '''(«typeSystem.get(scope).get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
 			} else {
 				return '''«expression.name.name».get("«expression.value»")'''
@@ -859,8 +913,12 @@ class FLYGenerator extends AbstractGenerator {
 						final int __numThread = «((call.input as FunctionInput).f_index as RangeLiteral ).value2 - ((call.input as FunctionInput).f_index as RangeLiteral ).value1» - 1;
 					'''
 				}
+				
+				var value1 = if ((((call.input as FunctionInput).f_index as RangeLiteral ).value_l1) != null) ((call.input as FunctionInput).f_index as RangeLiteral ).value_l1.name  else ((call.input as FunctionInput).f_index as RangeLiteral ).value1  ;
+				var value2 = if ((((call.input as FunctionInput).f_index as RangeLiteral ).value_l2) != null) ((call.input as FunctionInput).f_index as RangeLiteral ).value_l2.name  else ((call.input as FunctionInput).f_index as RangeLiteral ).value2  ;
+
 				s += '''
-					for(int _i=«((call.input as FunctionInput).f_index as RangeLiteral ).value1»;_i<«((call.input as FunctionInput).f_index as RangeLiteral ).value2»;_i++){
+					for(int _i=«value1»;_i<«value2»;_i++){
 						final int __i = _i;
 						Future<Object> _f = thread_pool.submit(new Callable<Object>(){
 							
@@ -1135,7 +1193,7 @@ class FLYGenerator extends AbstractGenerator {
 «««					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
 «««							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
 					
-					__fly_function_names.put("«call.target.name»","«call.target.name»_"+System.currentTimeMillis());
+					__fly_function_names.put("«call.target.name»","«call.target.name»_«id_execution»");
 					Runtime.getRuntime().exec("chmod +x src-gen/«cred»_deploy.sh");
 					Process p;
 					try {
@@ -1361,8 +1419,10 @@ class FLYGenerator extends AbstractGenerator {
 
 			}
 		} else if (object instanceof RangeLiteral) {
+			var value1 = if (object.value_l1 != null) object.value_l1.name  else  object.value1  ;
+			var value2 = if (object.value_l2 != null) object.value_l2.name  else  object.value2  ;
 			return '''
-				for(int «(index as VariableDeclaration).name»=«object.value1»;«(index as VariableDeclaration).name»<«object.value2»;«(index as VariableDeclaration).name»++){
+				for(int «(index as VariableDeclaration).name»=«value1»;«(index as VariableDeclaration).name»<«value2»;«(index as VariableDeclaration).name»++){
 					«generateExpression(body,scope)»
 				}
 			'''
@@ -1907,8 +1967,9 @@ class FLYGenerator extends AbstractGenerator {
 
 			} else if (exp.typeobject.equals("dat")) {
 				typeSystem.get(scope).put(exp.name, "Table")
+				var path = (exp.right as DeclarationObject).features.get(1).value_s
 				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
+					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»"+__id_execution+"/«path»" «ELSE»«path»«ENDIF»)
 					var «exp.name» = __«exp.name».toArray()
 				'''
 			}
