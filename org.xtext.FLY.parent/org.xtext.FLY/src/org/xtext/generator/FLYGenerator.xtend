@@ -83,7 +83,7 @@ class FLYGenerator extends AbstractGenerator {
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			fly_function_names.put(element.target.name,element.target.name+"_"+System.currentTimeMillis);
+			fly_function_names.put(element.target.name,element.target.name+"_"+id_execution);
 		}
 		
 		// generate .java file
@@ -1969,7 +1969,7 @@ class FLYGenerator extends AbstractGenerator {
 				typeSystem.get(scope).put(exp.name, "Table")
 				var path = (exp.right as DeclarationObject).features.get(1).value_s
 				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»"+__id_execution+"/«path»" «ELSE»«path»«ENDIF»)
+					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»-«id_execution»/«path»" «ELSE»«path»«ENDIF»)
 					var «exp.name» = __«exp.name».toArray()
 				'''
 			}
