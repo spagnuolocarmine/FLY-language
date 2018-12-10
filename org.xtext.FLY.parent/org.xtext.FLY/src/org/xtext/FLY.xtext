@@ -23,8 +23,12 @@ Expression returns Expression:
 	LocalFunctionCall 	|
 	SortExpression 		|
 	AtomicExpression 	|
-	VariableFunction
+	VariableFunction	|
+	RequireExpression 	|
+	InjectExpression	
 ;
+
+
 
 AtomicExpression:
 	'atomic' expressions=BlockExpression
@@ -157,6 +161,14 @@ FlyFunctionCall:
 FunctionInput:
 	{FunctionInput} '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')' | 
 	{FunctionInput} is_for_index?='in' f_index=ArithmeticExpression
+;
+
+InjectExpression:
+	{InjectExpression} 'inject' '{' value = STRING '}'
+;
+
+RequireExpression:
+	{RequireExpression} 'require' '(' value = STRING ')'
 ;
 
 //rules for Aritmethic Expression

@@ -59,6 +59,7 @@ import org.eclipse.xtext.findReferences.TargetURIs.Key
 import java.util.List
 import org.xtext.fLY.TimeFunction
 import org.eclipse.xtend.lib.macro.declaration.Declaration
+import com.google.inject.Inject
 
 /**
  * Generates code from your model files on save.
@@ -66,25 +67,22 @@ import org.eclipse.xtend.lib.macro.declaration.Declaration
  * See https://www.eclipse.org/Xtext/documentation/303_runtime_concepts.html#code-generation
  */
 class FLYGenerator extends AbstractGenerator {
+	
+	@Inject FLYGeneratorPython pyGen
+	@Inject FLYGeneratorJs	jsGen
 
 	HashMap<String, HashMap<String, String>> typeSystem = new HashMap<String, HashMap<String, String>>(); // memory hash
-	HashMap<String,String> fly_function_names = new HashMap<String, String>();
 	var name = ""
 	var func_ID = 0
 	var file_deploy_id = 0
 	var id_execution = System.currentTimeMillis
 	var last_func_result = null
-	var __local = false
 	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		res = resource;
-		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
-		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			fly_function_names.put(element.target.name,element.target.name+"_"+id_execution);
-		}
 		
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
@@ -94,9 +92,14 @@ class FLYGenerator extends AbstractGenerator {
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
+			var memory_env = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).
+				value_t;
 			if (type_env != "local") {
-				fsa.generateFile(element.target.name + ".js", resource.compileJS(element.target, type_env));
+				//fsa.generateFile(element.target.name + ".js", resource.compileJS(element.target, type_env));
 				fsa.generateFile(type_env+"_deploy.sh",resource.compileScript(element.target.name,type_env));
+				fsa.generateFile(type_env+"_undeploy.sh",resource.compileScript(element.target.name,type_env));
+				jsGen.generateJS(resource,fsa,context,name,element.target,type_env,typeSystem,id_execution);
+				//pyGen.doGenerate(resource,fsa,context);
 			}
 		}
 	}
@@ -192,24 +195,29 @@ class FLYGenerator extends AbstractGenerator {
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof ChannelDeclaration»
 					«generateChannelDeclaration(element)»	
+					
 				«ENDIF»
 				«IF element instanceof EnvironmentDeclaration»
 					«generateEnvironmentDeclaration(element)»
+					
 				«ENDIF»
 			«ENDFOR»
 			
-			static HashMap<String,String> __fly_function_names = new HashMap<String,String>();
+«««			//static HashMap<String,String> __fly_function_names = new HashMap<String,String>();
+«««			
+«««			//static long  __id_execution = System.currentTimeMillis();
 			
-			//static long  __id_execution = System.currentTimeMillis();
+			
 			
 			public static void main(String[] args) throws Exception{
 				«FOR element : resource.allContents.toIterable.filter(EnvironmentDeclaration)»
 					«setEnvironmentDeclarationLimits(element)»
 				«ENDFOR»
 				
+				
 				«IF resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud].length > 0»
-					if(!__s3.doesBucketExist("bucket-«name»-«id_execution»")){
-						__s3.createBucket("bucket-«name»-«id_execution»");
+					if(!__s3.doesBucketExist("bucket-«name.replaceAll("_","-")»-«id_execution»")){
+						__s3.createBucket("bucket-«name.replaceAll("_","-")»-«id_execution»");
 					}
 				«ENDIF»
 				
@@ -423,7 +431,7 @@ class FLYGenerator extends AbstractGenerator {
 					var name_file_ext = path.split("/").last
 					var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
 					return '''
-						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-«name»-«id_execution»");
+						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-«name.replaceAll("_","-")»-«id_execution»");
 						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
 						Boolean __exists_«name_file»_«id»=false;
 						for (S3ObjectSummary os: __result_objects_«id») {
@@ -433,7 +441,9 @@ class FLYGenerator extends AbstractGenerator {
 						    }
 						}
 						if(!__exists_«name_file»_«id»){
-							__s3.putObject("bucket-«name»-«id_execution»", "«name_file_ext»" , new File("«path»"));
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-«name.replaceAll("_","-")»-«id_execution»", "«name_file_ext»" , new File("«path»"));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3.putObject(__putObjectRequest);
 						}
 					'''
 			} 
@@ -510,9 +520,13 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 
-	def generateChannelDeclaration(ChannelDeclaration declaration) {
+	def generateChannelDeclaration(ChannelDeclaration declaration) { 
+			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
+				«IF ! env.equals("local")»
+					static Boolean __wait_on_«declaration.name» = true;
+				«ENDIF»
 			'''
 	}
 
@@ -520,13 +534,13 @@ class FLYGenerator extends AbstractGenerator {
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
 		if (env.equals("aws")) {
 			return '''
-				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_«name»_«id_execution»"+));
+				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_«name»_«id_execution»"));
 				
 				for(int __i=0;__i<4;__i++){
 					thread_pool.submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
-							while(true) {
+							while(__wait_on_«declaration.name») {
 								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»_«name»_«id_execution»").getQueueUrl()).
 										withWaitTimeSeconds(20).withMaxNumberOfMessages(10);
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
@@ -535,6 +549,7 @@ class FLYGenerator extends AbstractGenerator {
 									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»_«name»_«id_execution»").getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
+							return null;
 						}
 					});
 				}
@@ -548,7 +563,7 @@ class FLYGenerator extends AbstractGenerator {
 			var path = (dec.right as DeclarationObject).features.get(1).value_s
 			return '''
 				Table «dec.name» = Table.read().csv(CsvReadOptions
-					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»-«id_execution»/«path»" «ELSE»"«path»"«ENDIF»)
+					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name.replaceAll("_","-")»-«id_execution»/«path»" «ELSE»"«path»"«ENDIF»)
 					.maxNumberOfColumns(5000)
 					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
 					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
@@ -723,8 +738,9 @@ class FLYGenerator extends AbstractGenerator {
 					}"
 			return s
 		}
-		if (expression.target.typeobject.equals("dat") && expression.feature.equals("rows")) {
-			return '''
+		if (expression.target.typeobject.equals("dat")) {
+			if(expression.feature.equals("rows")){
+				return '''
 				HashMap<Integer, HashMap<String,Object> > __«expression.target.name»_rows = new HashMap<Integer, HashMap<String,Object>>();
 				    	for(int __i=0; __i<«expression.target.name».rowCount();__i++) {
 				    		HashMap<String, Object> __tmp = new HashMap<String, Object>();
@@ -734,6 +750,29 @@ class FLYGenerator extends AbstractGenerator {
 							 		__«expression.target.name»_rows.put(__i,__tmp);
 							 	}
 			'''
+			}else if(expression.feature.equals("delete")){
+				var path = ((expression.target as DatDeclaration).right as DeclarationObject).features.get(1).value_s;
+				var filename = path.split("/").last 
+				return '''
+					«IF (expression.target as DatDeclaration).onCloud»
+						try {
+						    s3.deleteObject(bucket-«name»-«id_execution», «filename»);
+						} catch (AmazonServiceException e) {
+						    System.err.println(e.getErrorMessage());
+						    System.exit(1);
+						}
+					«ENDIF»
+				'''
+			}
+			
+		}else if(expression.target.typeobject.equals("channel")){
+			if(expression.feature.equals("close")){
+				return '''
+					«IF !((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).equals("local") »
+						__wait_on_«expression.target.name» = false;
+					«ENDIF»
+				'''
+			}
 		} else {
 			var s = expression.target.name + "." + expression.feature + "("
 			for (exp : expression.expressions) {
@@ -1193,12 +1232,12 @@ class FLYGenerator extends AbstractGenerator {
 «««					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
 «««							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
 					
-					__fly_function_names.put("«call.target.name»","«call.target.name»_«id_execution»");
+					//__fly_function_names.put("«call.target.name»","«call.target.name»_«id_execution»");
 					Runtime.getRuntime().exec("chmod +x src-gen/«cred»_deploy.sh");
 					Process p;
 					try {
 						StringBuffer output = new StringBuffer();
-						p = Runtime.getRuntime().exec("src-gen/«cred»_deploy.sh "+"«call.target.name» "+__fly_function_names.get("«call.target.name»"));
+						p = Runtime.getRuntime().exec("src-gen/«cred»_deploy.sh «call.target.name» «call.target.name»_«id_execution»");
 						p.waitFor();
 						BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
 						
@@ -1216,7 +1255,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
 
-					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
+					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_«call.target.name»_«id_execution»_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
 					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
 						final String __s_temp = String.valueOf(___i);
@@ -1269,7 +1308,7 @@ class FLYGenerator extends AbstractGenerator {
 					}				 
 					
 				
-					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
+					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_«call.target.name»_«id_execution»_queue");
 					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
 					for(int __i=0;__i<__num_proc;__i++){
 						final int __start;
@@ -1773,8 +1812,6 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp instanceof BinaryOperation) {
 			var left = valuateArithmeticExpression(exp.left, scope)
 			var right = valuateArithmeticExpression(exp.right, scope)
-			//println("leftType: "+left)
-			//println("rightType: "+right)
 			if (exp.feature.equals("+") || exp.feature.equals("-") || exp.feature.equals("*") ||
 				exp.feature.equals("/")) {
 				if (left.equals("String") || right.equals("String"))
@@ -1924,10 +1961,7 @@ class FLYGenerator extends AbstractGenerator {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
-				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»"}).promise();
-				__params = {
-					QueueName : "«exp.target.name»" 
-				};
+				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»_«name»_«id_execution»"}).promise();
 				
 				__params = {
 					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
@@ -1969,7 +2003,7 @@ class FLYGenerator extends AbstractGenerator {
 				typeSystem.get(scope).put(exp.name, "Table")
 				var path = (exp.right as DeclarationObject).features.get(1).value_s
 				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name»-«id_execution»/«path»" «ELSE»«path»«ENDIF»)
+					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name.replaceAll("_","-")»-«id_execution»/«path»" «ELSE»«path»«ENDIF»)
 					var «exp.name» = __«exp.name».toArray()
 				'''
 			}
@@ -2379,10 +2413,10 @@ class FLYGenerator extends AbstractGenerator {
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
+		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn//\"} --memory-size 3008 --timeout 300
 		
 		while [ $? -ne 0 ]; do
-			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
+			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn//\"} --memory-size 3008 --timeout 300
 		done
 		
 		echo "lambda function created"
@@ -2394,20 +2428,20 @@ class FLYGenerator extends AbstractGenerator {
 			"MessageRetentionPeriod" : "3600"
 		}' > queue_input.json
 		create_queue=$(aws sqs create-queue --queue-name __input_${name}_queue --attributes file://queue_input.json --output json --query 'QueueUrl')
-		echo "input queue created at arn: " ${create_queue:1:-1}
+		echo "input queue created at arn: " ${create_queue//\"}
 		
 		#get queue attribute
 		echo "get attributes for input queue"
-		queue_attributes=$(aws sqs get-queue-attributes --queue-url ${create_queue:1:-1} --attribute-names QueueArn --output json --query 'Attributes.QueueArn')
-		echo ${queue_attributes:1:-1}
+		queue_attributes=$(aws sqs get-queue-attributes --queue-url ${create_queue//\"} --attribute-names QueueArn --output json --query 'Attributes.QueueArn')
+		echo ${queue_attributes//\"}
 		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda1 \
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes//\"}  --statement-id allow_sqs_to_call_lambda1 \
 		--action lambda:CraeteEventSourceMapping  --principal sqs.amazonaws.com
 		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda2 \
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes//\"}  --statement-id allow_sqs_to_call_lambda2 \
 		--action lambda:ListEventSourceMapping --principal sqs.amazonaws.com
 		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda3 \
+		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes//\"}  --statement-id allow_sqs_to_call_lambda3 \
 		--action lambda:ListFunction --principal sqs.amazonaws.com
 		
 		
@@ -2415,7 +2449,7 @@ class FLYGenerator extends AbstractGenerator {
 		
 		#create event source mapping
 		echo "create event source mapping"
-		aws lambda create-event-source-mapping --event-source-arn ${queue_attributes:1:-1} --function-name ${name} --batch-size 1 --enabled
+		aws lambda create-event-source-mapping --event-source-arn ${queue_attributes//\"} --function-name ${name} --batch-size 1 --enabled
 		echo "event source mapping created"
 		
 		# clear 
