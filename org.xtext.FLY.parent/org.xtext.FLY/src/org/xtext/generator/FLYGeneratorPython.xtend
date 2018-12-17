@@ -80,21 +80,23 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def generateBodyPy(BlockExpression exps, List<Expression> parameters, String name, String env) {
 		'''
 			«IF env == "aws"»
-				var AWS = require('aws-sdk');
-				var sqs = new AWS.SQS();
+				import boto3
+				import random
+				import time
+				import math 
+				
+				sqs = boto3.resource('sqs')
 			«ENDIF»
-			var __dataframe = require('dataframe-js').DataFrame;
-			let __params;
-			let __data;
+			import pandas as pd
+			import json
 			
-			exports.handler = async (event,context) => {
+			def handler(event,context):
 				
 				«FOR exp : parameters»
 					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event.Records[0].body));
-						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray()
+						__«(exp as VariableDeclaration).name» = pd.read_json(event.Records[0].body)
 					«ELSE»
-						var «(exp as VariableDeclaration).name» = event.Records[0].body;
+						«(exp as VariableDeclaration).name» = event.Records[0].body
 					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
@@ -108,23 +110,20 @@ class FLYGeneratorPython extends AbstractGenerator {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			s += '''	
-				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»_«name»_«id_execution»"}).promise();
+				__data = sqs.get_queue_by_name(QueueName='«exp.target.name»_«name»_«id_execution»')
 				
-				__params = {
-					MessageBody : JSON.stringify(«generatePyArithmeticExpression(exp.expression)»),
-					QueueUrl : __data.QueueUrl
-				}
-				
-				__data = await sqs.sendMessage(__params).promise();
+				__data.send_message(
+					MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression)»)
+				)
 			'''
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
 				if (exp.right instanceof NameObjectDef) {
 					typeSystem.get(scope).put(exp.name, "HashMap")
-					s += '''var «exp.name» = {'''
+					s += '''«exp.name» = {'''
 					var i = 0;
 					for (f : (exp.right as NameObjectDef).features) {
-						if (f.feature != null) {
+						if (f.feature !== null) {
 							typeSystem.get(scope).put(exp.name + "." + f.feature,
 								valuateArithmeticExpression(f.value, scope))
 							s = s + '''«f.feature»:«generatePyArithmeticExpression(f.value)»'''
@@ -142,24 +141,24 @@ class FLYGeneratorPython extends AbstractGenerator {
 
 				} else {
 					s += '''
-						var «exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression)»;
+						«exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression)»;
 					'''
 				}
 
 			} else if (exp.typeobject.equals("dat")) {
 				typeSystem.get(scope).put(exp.name, "Table")
 				var path = (exp.right as DeclarationObject).features.get(1).value_s
+				var uri = '''«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name.replaceAll("_","-")»-«id_execution»/«path»" «ELSE»«path»«ENDIF»'''
 				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-«name.replaceAll("_","-")»-«id_execution»/«path»" «ELSE»«path»«ENDIF»)
-					var «exp.name» = __«exp.name».toArray()
+					«exp.name» = pd.read_csv(«uri»)
 				'''
 			}
 		} else if (exp instanceof IfExpression) {
 			s += '''
-				if(«generatePyArithmeticExpression(exp.cond)»)
-					«generatePyExpression(exp.then,scope)» 
-				«IF exp.^else != null»
-					else
+				if «generatePyArithmeticExpression(exp.cond)»:
+					«generatePyExpression(exp.then,scope)»
+				«IF exp.^else !== null»
+					else:
 						«generatePyExpression(exp.^else,scope)»
 				«ENDIF»
 			'''
@@ -181,21 +180,21 @@ class FLYGeneratorPython extends AbstractGenerator {
 			'''
 		} else if (exp instanceof PrintExpression) {
 			s += '''
-				console.log(«generatePyArithmeticExpression(exp.print)») 
+				print(«generatePyArithmeticExpression(exp.print)»)
 			'''
 		}
 		return s
 	}
 
 	def generatePyAssignmentExpression(Assignment assignment, String scope) {
-		if (assignment.feature != null) {
+		if (assignment.feature !== null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
-							
+						 
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
@@ -242,7 +241,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
-				if ((assignment.feature_obj as IndexObject).value != null) {
+				if ((assignment.feature_obj as IndexObject).value !== null) {
 					typeSystem.get(scope).put(
 						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
 							(assignment.feature_obj as IndexObject).value.name + "]",
@@ -265,7 +264,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 
 	def generatePyWhileExpression(WhileExpression exp, String scope) {
 		'''
-			while(«generatePyArithmeticExpression(exp.cond)»)
+			while(«generatePyArithmeticExpression(exp.cond)»):
 				«generatePyExpression(exp.body,scope)»
 		'''
 	}
@@ -274,10 +273,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		if (exp.object instanceof CastExpression) {
 			if ((exp.object as CastExpression).type.equals("Dat")) {
 				return '''
-				for(var __«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name»»){
-					
-					
-ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclaration).name»[__«(exp.index as VariableDeclaration).name»];
+				for __«(exp.index as VariableDeclaration).name», «(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name».iterrows():
 				
 				«IF exp.body instanceof BlockExpression»
 					
@@ -293,21 +289,11 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 								
 				«ENDIF»
 				}
-				«««				for(__«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
-«««					var «(exp.index as VariableDeclaration).name» = «((exp.object as CastExpression).target as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
-«««					«IF exp.body instanceof BlockExpression»
-«««						«FOR e: (exp.body as BlockExpression).expressions»
-«««							«generatePyExpression(e,scope)»
-«««						«ENDFOR»
-«««					«ELSE»
-«««						«generatePyExpression(exp.body,scope)»
-«««					«ENDIF»
-«««					}
 				'''
 			} else if ((exp.object as CastExpression).type.equals("Object")) {
 				return '''
-					for(__key in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
-						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«((exp.object as CastExpression).target as VariableLiteral).variable.name»[__key]} 
+					for k,v in «((exp.object as CastExpression).target as VariableLiteral).variable.name».items():
+						«(exp.index as VariableDeclaration).name» = {'k': k, 'v': v} 
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
 								«generatePyExpression(e,scope)»
@@ -315,13 +301,13 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 						«ELSE»
 							«generatePyExpression(exp.body,scope)»	
 						«ENDIF»
-					}
 				'''
 			}
 		} else if (exp.object instanceof RangeLiteral) {
+			val lRange = (exp.object as RangeLiteral).value1
+			val rRange = (exp.object as RangeLiteral).value2
 			return '''
-				var «(exp.index as VariableDeclaration).name»;
-				for(«(exp.index as VariableDeclaration).name» = «(exp.object as RangeLiteral).value1» ;«(exp.index as VariableDeclaration).name» < «(exp.object as RangeLiteral).value2»; «(exp.index as VariableDeclaration).name»++)
+				for «(exp.index as VariableDeclaration).name» in range(«lRange», «rRange»):
 				«IF exp.body instanceof BlockExpression»
 					«generatePyBlockExpression(exp.body as BlockExpression,scope)»
 				«ELSE»
@@ -333,8 +319,8 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
 				return '''
-					for(__key in «(exp.object as VariableLiteral).variable.name» ){
-						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«(exp.object as VariableLiteral).variable.name»[__key]}
+					for k, v in «(exp.object as VariableLiteral).variable.name».items():
+						«(exp.index as VariableDeclaration).name» = {'k': k, 'v': v}
 						«IF exp.body instanceof BlockExpression»
 							«FOR e: (exp.body as BlockExpression).expressions»
 								«generatePyExpression(e,scope)»
@@ -342,7 +328,7 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 						«ELSE»
 							«generatePyExpression(exp.body,scope)»	
 						«ENDIF»
-					}
+					
 				'''
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
@@ -357,47 +343,42 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 						«generatePyExpression(exp.body,scope)»
 					«ENDIF»
 				}
-				«««					for(__«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»){
-«««						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
-«««						«IF exp.body instanceof BlockExpression»
-«««							«FOR e: (exp.body as BlockExpression).expressions»
-«««								«generatePyExpression(e,scope)»
-«««							«ENDFOR»
-«««						«ELSE»
-«««							«generatePyExpression(exp.body,scope)»
-«««						«ENDIF»
-«««					}
 				'''
 			}
 		}
 	}
 
 	def generatePyBlockExpression(BlockExpression block, String scope) {
-		'''{
+		'''
 		«FOR exp : block.expressions»
 			«generatePyExpression(exp,scope)»
 		«ENDFOR»
-		}'''
+		'''
 	}
 
 	def generatePyArithmeticExpression(ArithmeticExpression exp) {
 		if (exp instanceof BinaryOperation) {
 			if (exp.feature.equals("and"))
-				return '''«generatePyArithmeticExpression(exp.left)» && «generatePyArithmeticExpression(exp.right)»'''
+				return '''«generatePyArithmeticExpression(exp.left)» and «generatePyArithmeticExpression(exp.right)»'''
 			else if (exp.feature.equals("or"))
-				return '''«generatePyArithmeticExpression(exp.left)» || «generatePyArithmeticExpression(exp.right)»'''
+				return '''«generatePyArithmeticExpression(exp.left)» or «generatePyArithmeticExpression(exp.right)»'''
 			else
 				return '''«generatePyArithmeticExpression(exp.left)» «exp.feature» «generatePyArithmeticExpression(exp.right)»'''
 		} else if (exp instanceof UnaryOperation) {
 			return '''«exp.feature»«generatePyArithmeticExpression(exp.operand)»'''
 		} else if (exp instanceof PostfixOperation) {
-			return '''«generatePyArithmeticExpression(exp.operand)»«exp.feature»'''
+			var postfixOp = ""
+			switch(exp.feature) {
+				case "++": postfixOp = "+=1"
+				case "--": postfixOp = "-=1"
+			}
+			return '''«generatePyArithmeticExpression(exp.operand)»«postfixOp»'''
 		} else if (exp instanceof ParenthesizedExpression) {
 			return '''(«generatePyArithmeticExpression(exp.expression)»)'''
 		} else if (exp instanceof NumberLiteral) {
 			return '''«exp.value»'''
 		} else if (exp instanceof BooleanLiteral) {
-			return '''«exp.value»'''
+			return '''«exp.value.toFirstUpper»'''
 		} else if (exp instanceof FloatLiteral) {
 			return '''«exp.value»'''
 		}
@@ -407,29 +388,39 @@ ar «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclara
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("random")) {
-				return '''Math.random()'''
+				return '''random.random()'''
 			}
 		} else if (exp instanceof TimeFunction) {
-			if (exp.value != null) {
-				return '''(process.hrtime(«exp.value.name»))'''
+			if (exp.value !== null) {
+				return '''int(time.time() * 1000) - «exp.value.name»'''
 			} else {
-				return '''(process.hrtime())'''
+				return '''int(time.time() * 1000)'''
 			}
 		} else if (exp instanceof NameObject) {
-			return '''«(exp.name as VariableDeclaration).name».«exp.value»'''
+			return '''«(exp.name as VariableDeclaration).name»['«exp.value»']'''
 		} else if (exp instanceof IndexObject) {
 			if (exp.value !== null) {
 				return '''«(exp.name as VariableDeclaration).name»[«(exp.value.name)»]'''
 			} else {
-				return '''«(exp.name as VariableDeclaration).name»[«exp.valuet»]'''
+				return '''«(exp.name as VariableDeclaration).name»['«exp.valuet»']'''
 			}
 		} else if (exp instanceof CastExpression) {
-			return '''«generatePyArithmeticExpression(exp.target)»'''
+			return '''«generatePyCast(exp)»'''
 		} else if (exp instanceof MathFunction) {
-			return '''Math.«exp.feature»(«FOR par : exp.expressions» «generatePyArithmeticExpression(par)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
+			return '''math.«exp.feature»(«FOR par : exp.expressions» «generatePyArithmeticExpression(par)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
 		} else {
 			return ''''''
 		}
+	}
+	
+	def generatePyCast(CastExpression cast) {
+		switch(cast.type) { // 'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double'
+			case "String": return '''str(«generatePyArithmeticExpression(cast.target)»)'''
+			case "Integer": return '''int(«generatePyArithmeticExpression(cast.target)»)'''
+			case "Dat": return '''pd.read_json(«generatePyArithmeticExpression(cast.target)»)'''
+			case "Object": return '''json.loads(«generatePyArithmeticExpression(cast.target)»)'''
+			case "Double": return '''float(«generatePyArithmeticExpression(cast.target)»)'''
+		}	
 	}
 
 	def String valuateArithmeticExpression(ArithmeticExpression exp, String scope) {
