@@ -17,6 +17,8 @@ import org.eclipse.xtext.scoping.Scopes
 import org.xtext.fLY.ForExpression
 import org.xtext.fLY.DatDeclaration
 import org.xtext.fLY.RandomDeclaration
+import org.xtext.fLY.EnvironmentDeclaration
+import org.xtext.fLY.ConstantDeclaration
 
 /**
  * This class contains custom scoping description.
@@ -43,6 +45,9 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			if (el instanceof VariableDeclaration) {
 				element.add(el)
 			}
+			if (el instanceof ConstantDeclaration) {
+				element.add(el)
+			}
 			if (el instanceof DatDeclaration) {
 				element.add(el)
 			}
@@ -50,6 +55,12 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				element.add(el)
 			}
 			if (el instanceof ChannelDeclaration) {
+				element.add(el)
+			}
+			if (el instanceof EnvironmentDeclaration){
+				element.add(el)
+			}
+			if (el instanceof FunctionDefinition){
 				element.add(el)
 			}}
 		return Scopes.scopeFor(element, parentScope)
@@ -65,7 +76,10 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 		}
 		if (parent instanceof ForExpression) {
 			val parentScope = getParentScope(parent)
-			val elements = newArrayList(parent.index)
+			val elements = newArrayList()
+			for (e : parent.index.indices){
+				elements.add(e)
+			}
 			return Scopes.scopeFor(elements, parentScope)
 		}
 		if (parent instanceof FunctionDefinition) {
@@ -75,6 +89,18 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			val containingElement = allElements.findFirst[isAncestor(it, exp)]
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
 				typeof(ChannelDeclaration))) {
+				elements.add(element)
+			}
+			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
+				typeof(ConstantDeclaration))) {
+				elements.add(element)
+			}
+			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
+				typeof(EnvironmentDeclaration))) {
+				elements.add(element)
+			}
+			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
+				typeof(FunctionDefinition))) {
 				elements.add(element)
 			}
 			// ----------------------------
@@ -92,10 +118,17 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 
 		val allElements = exp.getContainerOfType(typeof(Fly)).elements
 		val containingElement = allElements.findFirst[isAncestor(it, exp)]
-		println(allElements.indexOf(containingElement) + " ----- " + containingElement + " ------- " + exp)
 		val declaration = newArrayList()
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
 			typeof(VariableDeclaration))) {
+			declaration.add(element)
+		}
+		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
+			typeof(ConstantDeclaration))) {
+			declaration.add(element)
+		}
+		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
+			typeof(DatDeclaration))) {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
@@ -104,6 +137,10 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
 			typeof(FunctionDefinition))) {
+			declaration.add(element)
+		}
+		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
+			typeof(EnvironmentDeclaration))) {
 			declaration.add(element)
 		}
 		return declaration

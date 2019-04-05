@@ -27,7 +27,7 @@ public class Main {
 			return;
 		}
 		Injector injector = new FLYStandaloneSetup().createInjectorAndDoEMFRegistration();
-		Main main = injector.getInstance(Main.class);
+		Main main = injector.getInstance(Main.class); 
 		main.runGenerator(args[0]);
 	}
 

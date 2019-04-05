@@ -40,7 +40,6 @@ import org.xtext.fLY.DatTableObject
 import org.xtext.fLY.CastExpression
 import org.xtext.fLY.MathFunction
 import org.xtext.fLY.FunctionInput
-import org.xtext.fLY.VariableFor
 import org.xtext.fLY.NameObjectDef
 import org.eclipse.emf.ecore.EObject
 import org.xtext.fLY.Fly
@@ -52,12 +51,16 @@ import org.xtext.fLY.DeclarationObject
 import org.xtext.fLY.DeclarationFeature
 import org.xtext.fLY.FlyFunctionCall
 import org.xtext.fLY.SortExpression
-import java.util.EventObject
 import org.xtext.fLY.LocalFunctionInput
-import javax.lang.model.type.ArrayType
-import org.eclipse.xtext.findReferences.TargetURIs.Key
-import java.util.List
 import org.xtext.fLY.TimeFunction
+import com.google.inject.Inject
+import org.xtext.fLY.ArrayDefinition
+import org.xtext.fLY.ConstantDeclaration
+import org.xtext.fLY.ArrayInit
+import org.xtext.fLY.ArrayValue
+import org.xtext.fLY.ForIndex
+import org.xtext.fLY.NativeExpression
+import java.util.ArrayList
 
 /**
  * Generates code from your model files on save.
@@ -65,49 +68,65 @@ import org.xtext.fLY.TimeFunction
  * See https://www.eclipse.org/Xtext/documentation/303_runtime_concepts.html#code-generation
  */
 class FLYGenerator extends AbstractGenerator {
+	
+	@Inject FLYGeneratorPython pyGen
+	@Inject FLYGeneratorJs	jsGen
 
 	HashMap<String, HashMap<String, String>> typeSystem = new HashMap<String, HashMap<String, String>>(); // memory hash
-	HashMap<String,String> fly_function_names = new HashMap<String, String>();
 	var name = ""
 	var func_ID = 0
+	var file_deploy_id = 0
+	var id_execution = System.currentTimeMillis
 	var last_func_result = null
-	var __local = false
+	var deployed_function = new ArrayList<String>();
 	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		res = resource;
-		__local = false
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
-		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			fly_function_names.put(element.target.name,element.target.name+"_"+System.currentTimeMillis);
-		}
+		//fsa.generateFile(".fly_config.txt",resource.compileConfig)
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
 		fsa.generateFile(name + ".java", resource.compileJava)
 		
-		// generate .js file
+		// generate .js or .py file
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
+			var is_async = element.isIsAsync
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
+			if(type_env.equals("local") && ((element.environment.right as DeclarationObject).features.length==3)){
+				pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,is_async);
+			}
 			if (type_env != "local") {
-				fsa.generateFile(element.target.name + ".js", resource.compileJS(element.target, type_env));
-				fsa.generateFile(type_env+"_deploy.sh",resource.compileScript(element.target.name,type_env));
+				var language = ((element.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).
+				value_s;
+				if (language.contains("python")){
+					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,is_async); 
+				}else if (language.contains("nodejs")) {
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,is_async);
+				}
 			}
 		}
 	}
+	
 		
 	def CharSequence compileJava(Resource resource) '''
 		import java.io.File;
 		import java.io.FileInputStream;
 		import java.io.InputStreamReader;
 		import java.io.FileOutputStream;
+		import java.io.OutputStreamWriter;
 		import java.io.IOException;
 		import java.nio.ByteBuffer;
 		import java.nio.channels.FileChannel;
 		import java.nio.file.StandardOpenOption;
+		import java.io.InputStream;
+		import java.net.ServerSocket;
+		import java.net.Socket;
 		import java.io.BufferedReader;
 		import java.util.ArrayList;
+		import java.util.Arrays;
 		import java.util.List;
 		import java.util.zip.ZipEntry;
 		import java.util.zip.ZipOutputStream;
@@ -125,6 +144,7 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.concurrent.LinkedTransferQueue;
 		import java.util.concurrent.ExecutorService;
 		import java.util.concurrent.Executors;
+		import java.util.concurrent.ExecutionException;
 		import java.util.ArrayList;
 		import java.util.List;
 		import java.util.concurrent.Callable;
@@ -133,7 +153,8 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.Random;
 		import java.util.Collections;
 		import java.util.Comparator;
-		import java.util.Map.Entry;
+		import java.util.Map;
+		import java.util.Scanner;
 		import com.amazonaws.AmazonClientException;
 		import com.amazonaws.auth.AWSStaticCredentialsProvider;
 		import com.amazonaws.auth.BasicAWSCredentials;
@@ -153,16 +174,7 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.lambda.model.CreateFunctionResult;
 		import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
 		import com.amazonaws.services.lambda.model.FunctionCode;
-«««		import com.amazonaws.services.sns.AmazonSNS;
-«««		import com.amazonaws.services.sns.AmazonSNSClient;
-«««		import com.amazonaws.services.sns.model.CreateTopicRequest;
-«««		import com.amazonaws.services.sns.model.CreateTopicResult;
-«««		import com.amazonaws.services.sns.model.DeleteTopicRequest;
-«««		import com.amazonaws.services.sns.model.PublishRequest;
-«««		import com.amazonaws.services.sns.model.PublishResult;
-«««		import com.amazonaws.services.sns.model.SubscribeRequest;
-«««		import com.amazonaws.services.sns.model.SubscribeResult;
-«««		import com.amazonaws.services.sns.model.UnsubscribeRequest;
+		import com.amazonaws.services.lambda.model.InvokeRequest;
 		import com.amazonaws.services.sqs.AmazonSQS;
 		import com.amazonaws.services.sqs.model.Message;
 		import com.amazonaws.services.sqs.AmazonSQSClient;
@@ -174,6 +186,7 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.sqs.model.AmazonSQSException;
 		import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
 		import com.amazonaws.services.sqs.model.GetQueueUrlResult;
+		import com.amazonaws.services.sqs.model.DeleteQueueRequest;
 		import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
 		import com.amazonaws.services.identitymanagement.model.GetRoleResult;
 		import com.amazonaws.services.s3.AmazonS3;
@@ -183,6 +196,9 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.Bucket;
 		import com.amazonaws.services.s3.model.CannedAccessControlList;
 		import com.amazonaws.services.s3.model.PutObjectRequest;
+		import com.amazonaws.services.s3.model.ListObjectsV2Result;
+		import com.amazonaws.services.s3.model.PutObjectRequest;
+		import com.amazonaws.services.s3.model.S3ObjectSummary;
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
 		
@@ -190,61 +206,162 @@ class FLYGenerator extends AbstractGenerator {
 		
 		public class «name» {
 			
+			static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
 			
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof ChannelDeclaration»
 					«generateChannelDeclaration(element)»	
+					
+				«ENDIF»
+				«IF element instanceof ConstantDeclaration»
+					«generateConstantDeclaration(element,"main")»	
 				«ENDIF»
 				«IF element instanceof EnvironmentDeclaration»
-					«generateEnvironmentDeclarationForCloud(element)»
+					«generateEnvironmentDeclaration(element)»
+					
 				«ENDIF»
 			«ENDFOR»
-			
-			static ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
-			«IF __local»
-				static LinkedTransferQueue<String> __asyncTermination = new LinkedTransferQueue<String>(); 
-			«ENDIF»
-			
-			static HashMap<String,String> __fly_function_names = new HashMap<String,String>();
+					
+			static long  __id_execution =  System.currentTimeMillis();
 			
 			public static void main(String[] args) throws Exception{
+								
+				«FOR element : resource.allContents.toIterable.filter(EnvironmentDeclaration)»
+					«setEnvironmentDeclarationInfo(element)»
+				«ENDFOR»
+				
+				
+				«IF resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud].length > 0»
+					if(!__s3.doesBucketExist("bucket-"+__id_execution)){
+						__s3.createBucket("bucket-"+__id_execution);
+					}
+				«ENDIF»
+				
+				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
+				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("local")]»
+					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("local").get("nthread"));
+				«ENDFOR»
+				
+				«FOR element: resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud]»
+						«deployFileOnCloud(element,file_deploy_id++)»
+						
+				«ENDFOR»
+				
+				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
+				.filter[!(environment.right as DeclarationObject).features.get(0).equals("local")]»
+					«deployFlyFunctionOnCloud(element)»
+				«ENDFOR»
+				
 								
 				«FOR element : resource.allContents.toIterable.filter(Expression)»
 					«IF checkBlock(element.eContainer)==false»
 						«generateExpression(element,"main")»
 					«ENDIF»
 				«ENDFOR»
+
+				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
+				.filter[!(environment.right as DeclarationObject).features.get(0).equals("local")]»
+					«undeployFlyFunctionOnCloud(element)»
+				«ENDFOR»
 				
-				«IF __local »
-					thread_pool.shutdown();
-				«ENDIF»
+				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
+				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("local")]»
+					__thread_pool_«element.name».shutdown();
+				«ENDFOR»
+						
+				System.exit(0);
 			}
 				
 			«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
 				«IF checkBlock(element.eContainer)==false»
 					«generateFunctionDefinition(element)»
-										
 				«ENDIF»	
 			«ENDFOR»	
 			
 			private static String __generateString(Table t) {
-					StringBuilder b = new StringBuilder();
-					b.append("[");
-					int i_r = t.rowCount();
-					for(Row r : t) {
-						b.append('{');
-						for (int i=0;i< r.columnCount();i++) {
-							b.append("\""+ r.columnNames().get(i) +"\":"+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
-						}
-						b.append("}"+(((i_r != 1 ))?",":""));
-						i_r--;
+				StringBuilder b = new StringBuilder();
+				b.append("[");
+				int i_r = t.rowCount();
+				for(Row r : t) {
+					b.append('{');
+					for (int i=0;i< r.columnCount();i++) {
+						b.append("\""+ r.columnNames().get(i) +"\":"+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
 					}
-					b.append("]");
-					return b.toString();
+					b.append("}"+(((i_r != 1 ))?",":""));
+					i_r--;
 				}
+				b.append("]");
+				return b.toString();
+			}
+			
+			private static String __generateString(String s) {
+				StringBuilder b = new StringBuilder();
+				b.append("[");
+				String[] tmp = s.split("\n");
+				for(String t: tmp){
+					b.append(t);
+					if(t != tmp[tmp.length-1]){
+						b.append(",");
+					}
+				}
+				b.append("]");
+				return b.toString();
+			}
 		}
 	'''
-
+		
+		def undeployFlyFunctionOnCloud(FlyFunctionCall call) {
+			if(deployed_function.contains(call.target.name)){
+				deployed_function.remove(call.target.name)
+				return '''
+				Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
+				ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «call.target.name» "+__id_execution);
+				Process __p_undeploy_«call.target.name»;
+				try {
+					__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
+					__p_undeploy_«call.target.name».waitFor();
+					if(__p_undeploy_«call.target.name».exitValue()!=0){
+						System.out.println("Error in «call.target.name»_undeploy.sh ");
+						System.exit(1);
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+				'''				
+			}else
+				return ''''''
+		}
+		
+		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
+			if (!deployed_function.contains(call.target.name)){
+				deployed_function.add(call.target.name)
+				return '''
+					Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
+					ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «call.target.name» "+__id_execution);
+					__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+					Map<String, String> __env = __processBuilder_deploy_«call.target.name».environment();
+					__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+					String __path_env = __env.get("PATH");
+					if (!__path_env.contains("/usr/local/bin")) {
+						 __env.put("PATH", __path_env+":/usr/local/bin");
+					}
+					Process __p_deploy_«call.target.name»;
+					try {
+						__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
+						__p_deploy_«call.target.name».waitFor();
+						if(__p_deploy_«call.target.name».exitValue()!=0){
+							System.out.println("Error in «call.target.name»_deploy.sh ");
+							System.exit(1);
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+					'''
+			}
+			else 
+			return''''''
+		}
+		
 	def generateExpression(Expression element, String scope) {
 		'''
 			«IF element  instanceof VariableDeclaration»
@@ -256,9 +373,6 @@ class FLYGenerator extends AbstractGenerator {
 			«IF element instanceof RandomDeclaration»
 				«generateRandomDeclaration(element)»
 			«ENDIF»
-«««			«IF element instanceof EnvironmentDeclaration»
-«««				«generateEnvironmentDeclaration(element)»
-«««			«ENDIF»
 			«IF element instanceof Assignment»
 				«generateAssignment(element,scope)»
 			«ENDIF»
@@ -298,11 +412,23 @@ class FLYGenerator extends AbstractGenerator {
 			«IF element instanceof ChannelDeclaration»
 				«generateChanelDeclarationForCloud(element)»
 			«ENDIF»
+			«IF element instanceof ChannelDeclaration»
+				«generateChannelDeclarationForLanguage(element)»
+			«ENDIF»
 			«IF element instanceof SortExpression»
 				«generateSortExpression(element,scope)»
 			«ENDIF»
+			«IF element instanceof PostfixOperation»
+				«generatePostfixOperation(element,scope)»
+			«ENDIF»
 		'''
 	}
+		
+		def generatePostfixOperation(PostfixOperation exp, String scope) {
+			return '''
+				«generateArithmeticExpression(exp.variable,scope)»«exp.feature»;
+			'''
+		}
 
 	def generateSortExpression(SortExpression exp, String scope) {
 		return '''
@@ -332,7 +458,7 @@ class FLYGenerator extends AbstractGenerator {
 		'''
 	}
 
-	// methods for Variable Delcaration 
+	// methods for Variable Declaration 
 	def generateVariableDeclaration(VariableDeclaration dec, String scope) {
 		if (dec.typeobject.equals('var')) { // var declaration
 			if (dec.right instanceof NameObjectDef) { // if is a NameObject
@@ -355,6 +481,108 @@ class FLYGenerator extends AbstractGenerator {
 
 				}
 				return s
+			} else if(dec.right instanceof ArrayDefinition){
+				var type_decl = (dec.right as ArrayDefinition).type
+				var real_type = ""
+				if(type_decl.equals("Integer")){
+					real_type = "int"
+				}else if(type_decl.equals("Double")){
+					real_type = "double"
+				}else if(type_decl.equals("String")){
+					real_type = "String"
+				}
+				if((dec.right as ArrayDefinition).indexes.length==1){ //mono-dimensional
+					typeSystem.get(scope).put(dec.name, "Array_"+type_decl)
+					var array_len = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var s = '''«real_type»[] «dec.name» = new «real_type»[«array_len»];'''
+					return s
+				} else if((dec.right as ArrayDefinition).indexes.length==2){ //bi-dimensional
+					var row = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var col = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(1).value,scope)
+					typeSystem.get(scope).put(dec.name, "Matrix_"+type_decl+"_"+col)
+					
+					var s = '''«real_type»[][] «dec.name» = new «real_type»[«row»][«col»];'''
+					return s
+				} else if ((dec.right as ArrayDefinition).indexes.length==3) { //three-dimensional
+					var row = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var col = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(1).value,scope)
+					var dep = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(2).value,scope)
+					typeSystem.get(scope).put(dec.name, "Matrix_"+type_decl+"_"+col+"_"+dep)
+					var s = '''«real_type»[][][] «dec.name» = new «real_type»[«row»][«col»][«dep»];'''
+					return s
+				}
+				
+				
+			}else if(dec.right instanceof ArrayInit){
+			
+				if(((dec.right as ArrayInit).values.get(0) instanceof NumberLiteral) ||
+					((dec.right as ArrayInit).values.get(0) instanceof StringLiteral) ||
+					((dec.right as ArrayInit).values.get(0) instanceof FloatLiteral)
+				){ //array init
+					var real_type = valuateArithmeticExpression((dec.right as ArrayInit).values.get(0) as ArithmeticExpression,scope)
+
+					typeSystem.get(scope).put(dec.name,"Array_"+real_type)
+					return '''
+						«real_type» [] «dec.name» = {«FOR e: (dec.right as ArrayInit).values»«generateArithmeticExpression(e as ArithmeticExpression,scope)»«IF e != (dec.right as ArrayInit).values.last »,«ENDIF»«ENDFOR»};
+					'''
+				} else if ((dec.right as ArrayInit).values.get(0) instanceof ArrayValue){ //matrix 2d
+					if(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof NumberLiteral ||
+						((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof StringLiteral ||
+						((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof FloatLiteral){
+						var real_type = valuateArithmeticExpression(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArithmeticExpression,scope)
+						var col = (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+						typeSystem.get(scope).put(dec.name,"Matrix_"+real_type+"_"+col)
+						var ret = '''«real_type» [][] «dec.name» = {'''
+						for (e : (dec.right as ArrayInit).values){
+							ret+='''{'''
+							for(e1: (e as ArrayValue).values){
+								ret+=generateArithmeticExpression(e1 as ArithmeticExpression,scope)
+								if(e1!= (e as ArrayValue).values.last){
+									ret+=''','''
+								}
+							}
+							ret+='''}'''
+							if (e !=  (dec.right as ArrayInit).values.last){
+								ret+=''','''
+							}
+						}
+						ret+='''};'''
+						return ret
+					}else if (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof ArrayValue){ //matrix 3d
+						if ((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof NumberLiteral ||
+							(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof StringLiteral ||
+							(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof FloatLiteral ){
+							var real_type = valuateArithmeticExpression((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) as ArithmeticExpression,scope)
+							var col = (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+							var dep = ((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+							typeSystem.get(scope).put(dec.name,"Matrix_"+real_type+"_"+col+"_"+dep)
+							var ret = '''«real_type» [][][] «dec.name» = {'''
+							for (e : (dec.right as ArrayInit).values){
+								ret+='''{'''
+								for(e1: (e as ArrayValue).values){
+									ret+='''{'''
+									for(e2: ((e1 as ArrayValue).values)){
+										ret+=generateArithmeticExpression(e2 as ArithmeticExpression,scope)
+										if(e2!= (e1 as ArrayValue).values.last){
+											ret+=''','''
+										}
+									}
+									ret+='''}'''
+									if(e1!= (e as ArrayValue).values.last){
+										ret+=''','''
+									}
+								}
+								ret+='''}'''
+								if (e !=  (dec.right as ArrayInit).values.last){
+									ret+=''','''
+								}
+							}
+							ret+='''};'''
+							return ret	
+						}
+					}
+					
+				}
 			} else if (dec.right instanceof FlyFunctionCall) {
 				var s = '''
 					«generateFlyFunctionCall(dec.right as FlyFunctionCall,scope)»
@@ -391,18 +619,39 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
-					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("aws") ){
+					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("aws") ||
+						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") &&
+							(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.length==3
+						)){
 						if((dec.right as CastExpression).type.equals("Object")){
 							typeSystem.get(scope).put(dec.name, "HashMap")
 							return '''
 								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
 								HashMap «dec.name» = new Gson().fromJson(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»,new TypeToken<HashMap<String, String>>() {}.getType());
 							'''
+						} else if ((dec.right as CastExpression).type.equals("Integer")) {
+							typeSystem.get(scope).put(dec.name, "Integer")
+							return '''
+								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+								int «dec.name» = Integer.parseInt(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»);
+							'''
+						}else if((dec.right as CastExpression).type.equals("Float")){
+							typeSystem.get(scope).put(dec.name, "Double")
+							return '''
+								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+								double «dec.name» = Double.parseDouble(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»);
+							'''
+						} else if((dec.right as CastExpression).type.equals("String")){
+							typeSystem.get(scope).put(dec.name, "String")
+							return '''
+								String «dec.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+							'''
 						}
-					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") ){
-						typeSystem.get(scope).put(dec.name, "HashMap")
+					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") ){ 
+						typeSystem.get(scope).put(dec.name, valuateArithmeticExpression((dec.right as CastExpression),scope))
+						println( typeSystem.get(scope))
 						return '''
-							HashMap<Object,Object> «dec.name» = (HashMap<Object,Object>) «((dec.right as CastExpression).target as ChannelReceive).target.name».take(); 
+							«valuateArithmeticExpression((dec.right as CastExpression),scope)» «dec.name» = («valuateArithmeticExpression((dec.right as CastExpression),scope)») «((dec.right as CastExpression).target as ChannelReceive).target.name».take(); 
 						'''
 					}
 				}  else { // if is an Expression to evaluate
@@ -413,24 +662,178 @@ class FLYGenerator extends AbstractGenerator {
 			}
 		}
 	}
+	
+	def generateConstantDeclaration(ConstantDeclaration dec, String scope) {//DA MODIFICARE ASSOLUTAMENTE FATTO SOLO PER FAR FUNZIONARE JS
+		if (dec.right instanceof NameObjectDef){ 
+				typeSystem.get(scope).put(dec.name, "HashMap")
+				var s = '''static HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
+				'''
+				var i = 0;
+				for (f : (dec.right as NameObjectDef).features) {
+					if (f.feature != null) {
+						typeSystem.get(scope).put(dec.name + "." + f.feature,
+							valuateArithmeticExpression(f.value, scope))
+						//s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value,scope)»);
+						//'''
+					} else {
+						typeSystem.get(scope).put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value, scope))
+						//s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value,scope)»);
+						//'''
+						i++
+					}
 
-//	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
-//		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-//		if (env.equals("local")) {
-//			__local = true
-//			return '''
-//				ExecutorService thread_pool = Executors.newFixedThreadPool(4); //modify
-//			'''
-//		}
-//	}
+				}
+				return s			
+		} else if(dec.right instanceof ArrayDefinition){
+			var type_decl = (dec.right as ArrayDefinition).type
+				var real_type = ""
+				if(type_decl.equals("Integer")){
+					real_type = "int"
+				}else if(type_decl.equals("Double")){
+					real_type = "double"
+				}else if(type_decl.equals("String")){
+					real_type = "String"
+				}
+				if((dec.right as ArrayDefinition).indexes.length==1){ //mono-dimensional
+					typeSystem.get(scope).put(dec.name, "Array_"+type_decl)
+					var array_len = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var s = '''static «real_type»[] «dec.name» = new «real_type»[«array_len»];'''
+					return s
+				} else if((dec.right as ArrayDefinition).indexes.length==2){ //bi-dimensional
+					var row = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var col = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(1).value,scope)
+					typeSystem.get(scope).put(dec.name, "Matrix_"+type_decl+"_"+col)
+					
+					var s = '''static «real_type»[][] «dec.name» = new «real_type»[«row»][«col»];'''
+					return s
+				} else if ((dec.right as ArrayDefinition).indexes.length==3) { //three-dimensional
+					var row = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(0).value,scope)
+					var col = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(1).value,scope)
+					var dep = generateArithmeticExpression((dec.right as ArrayDefinition).indexes.get(2).value,scope)
+					typeSystem.get(scope).put(dec.name, "Matrix_"+type_decl+"_"+col+"_"+dep)
+					var s = '''static «real_type»[][][] «dec.name» = new «real_type»[«row»][«col»][«dep»];'''
+					return s
+				}
+		}else if(dec.right instanceof ArrayInit){
+			
+				if(((dec.right as ArrayInit).values.get(0) instanceof NumberLiteral) ||
+					((dec.right as ArrayInit).values.get(0) instanceof StringLiteral) ||
+					((dec.right as ArrayInit).values.get(0) instanceof FloatLiteral)
+				){ //array init
+					var real_type = valuateArithmeticExpression((dec.right as ArrayInit).values.get(0) as ArithmeticExpression,scope)
 
-	def generateEnvironmentDeclarationForCloud(EnvironmentDeclaration dec) {
+					typeSystem.get(scope).put(dec.name,"Array_"+real_type)
+					return '''
+						final static «real_type» [] «dec.name» = {«FOR e: (dec.right as ArrayInit).values»«generateArithmeticExpression(e as ArithmeticExpression,scope)»«IF e != (dec.right as ArrayInit).values.last »,«ENDIF»«ENDFOR»};
+					'''
+				} else if ((dec.right as ArrayInit).values.get(0) instanceof ArrayValue){ //matrix 2d
+					if(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof NumberLiteral ||
+						((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof StringLiteral ||
+						((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof FloatLiteral){
+						var real_type = valuateArithmeticExpression(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArithmeticExpression,scope)
+						var col = (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+						typeSystem.get(scope).put(dec.name,"Matrix_"+real_type+"_"+col)
+						var ret = '''final static «real_type» [][] «dec.name» = {'''
+						for (e : (dec.right as ArrayInit).values){
+							ret+='''{'''
+							for(e1: (e as ArrayValue).values){
+								ret+=generateArithmeticExpression(e1 as ArithmeticExpression,scope)
+								if(e1!= (e as ArrayValue).values.last){
+									ret+=''','''
+								}
+							}
+							ret+='''}'''
+							if (e !=  (dec.right as ArrayInit).values.last){
+								ret+=''','''
+							}
+						}
+						ret+='''};'''
+						return ret
+					}else if (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof ArrayValue){ //matrix 3d
+						if ((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof NumberLiteral ||
+							(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof StringLiteral ||
+							(((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) instanceof FloatLiteral ){
+							var real_type = valuateArithmeticExpression((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) as ArithmeticExpression,scope)
+							var col = (((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+							var dep = ((((dec.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+							typeSystem.get(scope).put(dec.name,"Matrix_"+real_type+"_"+col+"_"+dep)
+							var ret = '''final static «real_type» [][][] «dec.name» = {'''
+							for (e : (dec.right as ArrayInit).values){
+								ret+='''{'''
+								for(e1: (e as ArrayValue).values){
+									ret+='''{'''
+									for(e2: ((e1 as ArrayValue).values)){
+										ret+=generateArithmeticExpression(e2 as ArithmeticExpression,scope)
+										if(e2!= (e1 as ArrayValue).values.last){
+											ret+=''','''
+										}
+									}
+									ret+='''}'''
+									if(e1!= (e as ArrayValue).values.last){
+										ret+=''','''
+									}
+								}
+								ret+='''}'''
+								if (e !=  (dec.right as ArrayInit).values.last){
+									ret+=''','''
+								}
+							}
+							ret+='''};'''
+							return ret	
+						}
+					}
+					
+				}
+			} else if(dec.right instanceof ArithmeticExpression){
+			typeSystem.get(scope).put(dec.name,
+					valuateArithmeticExpression(dec.right as ArithmeticExpression, scope))
+				//println(dec.name + " --- " + typeSystem.get(scope).get(dec.name));
+				return '''static «valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
+			
+		}
+	}
+		
+	
+	def deployFileOnCloud(DatDeclaration dec,long id) {
+			var path = (dec.right as DeclarationObject).features.get(1).value_s
+			if( ! path.contains("https://")){ // local 
+					var name_file_ext = path.split("/").last
+					var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
+					return '''
+						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«name_file»_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals("«name_file_ext»")){
+						    	__exists_«name_file»_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«name_file»_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3.putObject(__putObjectRequest);
+						}
+					'''
+			} 
+
+		}
+	
+
+
+	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("aws")) {
+		if (env.equals("local")){
+			return '''
+				static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
+			'''
+		}
+		else if (env.equals("aws")) {
 			var access_id_key = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
 			var secret_access_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
 			var region = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
 			return '''
+				
 				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
 				
 				static AmazonSQS __sqs  = AmazonSQSClient.builder()
@@ -455,35 +858,95 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		}
 	}
+	
+	def setEnvironmentDeclarationInfo(EnvironmentDeclaration dec){
+		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
+		if (env.equals("local")){
+			return '''
+				__fly_environment.put("«env»", new HashMap<String,Object>());
+				__fly_environment.get("«env»").put("nthread",«((dec.right as DeclarationObject).features.get(1)).value_t»);
+				«IF (dec.right as DeclarationObject).features.length==3»
+				__fly_environment.get("«env»").put("language","«((dec.right as DeclarationObject).features.get(2)).value_s»");
+				«ENDIF»
+			'''
+		}
+		else if (env.equals("aws")) {
+			var threads = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_t
+			var memory = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
+			var time = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
+			var language =  ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+			return '''
+				__fly_environment.put("«env»", new HashMap<String,Object>());
+				__fly_environment.get("«env»").put("nthread",«threads»);
+				__fly_environment.get("«env»").put("memory",«memory»);
+				__fly_environment.get("«env»").put("time",«time»);
+				__fly_environment.get("«env»").put("language","«language»");
+			'''
+		}
+	}
 
-	def generateChannelDeclaration(ChannelDeclaration declaration) {
-		//var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		//if (env.equals("local")) {
+	def generateChannelDeclaration(ChannelDeclaration declaration) { 
+			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
+				«IF ! env.equals("local")»
+					static Boolean __wait_on_«declaration.name» = true;
+				«ENDIF»
+				«IF (declaration.environment.right as DeclarationObject).features.length == 3 »
+					static ServerSocket __socket_server_«declaration.name»;
+				«ENDIF»
 			'''
-		//}
+	}
+	
+	def generateChannelDeclarationForLanguage(ChannelDeclaration declaration){
+		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
+		if(env.equals("local") && (declaration.environment.right as DeclarationObject).features.length==3){
+			return '''
+				__socket_server_«declaration.name»= new ServerSocket(9090);
+				__thread_pool_«declaration.environment.name».submit(new Runnable() {
+							
+					public void run() {
+						try {
+							while(true) {
+				                Socket __socket = __socket_server_«declaration.name».accept();
+				                InputStreamReader __isr = new InputStreamReader(__socket.getInputStream());
+				                BufferedReader __br = new BufferedReader(__isr);
+				                String __response = __br.readLine();
+				                __socket.close();
+							    «declaration.name».put(__response);
+							}
+						}catch (Exception e) {
+							
+						}
+					}
+				});
+			'''
+		}
+		return ''''''
 	}
 
 	def generateChanelDeclarationForCloud(ChannelDeclaration declaration) { // create a queue on AWS
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
+		var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
+		.filter[(right as DeclarationObject).features.get(0).value_s.equals("local")].get(0) as EnvironmentDeclaration).name
 		if (env.equals("aws")) {
 			return '''
-				__sqs.createQueue(new CreateQueueRequest("«declaration.name»"));
+				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
 				
-				for(int __i=0;__i<4;__i++){
-					thread_pool.submit(new Callable<Object>() {
+				for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+					__thread_pool_«local».submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
-							while(true) {
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»").getQueueUrl()).
-										withWaitTimeSeconds(20).withMaxNumberOfMessages(10);
+							while(__wait_on_«declaration.name») {
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl()).
+										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
 								for(Message msg : __res.getMessages()) { 
 									«declaration.name».put(msg.getBody());
-									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»").getQueueUrl(), msg.getReceiptHandle());
+									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
+							return null;
 						}
 					});
 				}
@@ -492,17 +955,31 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateDatDeclaration(DatDeclaration dec, String scope) {
-		typeSystem.get(scope).put(dec.name, "Table")
-		if (dec.right instanceof NameObjectDef) {
+		
+		if (dec.right instanceof DeclarationObject) {
+			var type = (dec.right as DeclarationObject).features.get(2).value_s
+			var path = (dec.right as DeclarationObject).features.get(1).value_s
+			println("type: "+type)
+			if(type.equals("txt")){
+				typeSystem.get(scope).put(dec.name, "File")
+				println(typeSystem.get(scope))	
+				return '''
+					File «dec.name» = new File("«path»");
+				'''
+			}else if(type.equals("csv")){
+				typeSystem.get(scope).put(dec.name, "Table")
 			return '''
 				Table «dec.name» = Table.read().csv(CsvReadOptions
-					.builder(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(1).value,scope)»)
+					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
 					.maxNumberOfColumns(5000)
-					.tableName(«generateArithmeticExpression((dec.right as NameObjectDef).features.get(0).value,scope)»)
-					.separator('«(generateArithmeticExpression((dec.right as NameObjectDef).features.get(3).value,scope) as String).charAt(1)»')
+					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
+					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
 				);
 			'''
+			}
+			
 		} else {
+			typeSystem.get(scope).put(dec.name,valuateArithmeticExpression(dec.right as ArithmeticExpression,scope))	
 			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
 		}
 	}
@@ -525,8 +1002,6 @@ class FLYGenerator extends AbstractGenerator {
 				return '''«generateArithmeticExpression(expression.left,scope)» «expression.feature» «generateArithmeticExpression(expression.right,scope)»'''
 		} else if (expression instanceof UnaryOperation) {
 			return '''«expression.feature»«generateArithmeticExpression(expression.operand,scope)»'''
-		} else if (expression instanceof PostfixOperation) {
-			return '''«generateArithmeticExpression(expression.operand,scope)»«expression.feature»'''
 		} else if (expression instanceof ParenthesizedExpression) {
 			return '''(«generateArithmeticExpression(expression.expression,scope)»)'''
 		} else if (expression instanceof NumberLiteral) {
@@ -540,25 +1015,45 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
-			
-			if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
+			if(expression.name instanceof EnvironmentDeclaration){
+				return '''__fly_environment.get(«expression.name.name»).get("«expression.value»")'''
+			}
+			else if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
 				return '''(«typeSystem.get(scope).get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
 			} else {
 				return '''«expression.name.name».get("«expression.value»")'''
 			}
 		} else if (expression instanceof IndexObject) {
-			 if (typeSystem.get(scope).get(expression.name.name + "[" + expression.valuet + "]") !== null) {
-				return '''(«typeSystem.get(scope).get(expression.name.name+"["+expression.valuet+"]")») «expression.name.name».get("«expression.valuet»")'''
-			} else {
-				if(typeSystem.get(scope).get(expression.name.name).equals("HashMap"))
-					return '''«expression.name.name».get(«expression.valuet»)'''
-				else if(typeSystem.get(scope).get(typeSystem.get(scope).get(expression.name.name)).equals("Table")){
-				if(expression.value != null){
-					return '''«typeSystem.get(scope).get(expression.name.name)».get(_«typeSystem.get(scope).get(expression.name.name)», «expression.value.name»)'''
-				}else {
-					return '''«typeSystem.get(scope).get(expression.name.name)».get(_«typeSystem.get(scope).get(expression.name.name)», «expression.valuet»)'''
+			
+			if(typeSystem.get(scope).get(expression.name.name).contains("Array")){
+				if(expression.indexes.get(0).value2 === null)
+					return '''«expression.name.name»[«generateArithmeticExpression(expression.indexes.get(0).value,scope)»]'''
+				else
+					return '''Arrays.copyOfRange(«expression.name.name», «generateArithmeticExpression(expression.indexes.get(0).value,scope)», «generateArithmeticExpression(expression.indexes.get(0).value2,scope)»)'''
+			} else if(typeSystem.get(scope).get(expression.name.name).contains("Matrix")){
+				if(expression.indexes.length==2){
+					if(expression.indexes.get(0).value2 === null && expression.indexes.get(1).value2 === null ){
+						return '''«expression.name.name»[«generateArithmeticExpression(expression.indexes.get(0).value,scope)»][«generateArithmeticExpression(expression.indexes.get(1).value,scope)»]'''
+					}else {
+						return ''''''
+					}
+				}else{
+					if(expression.indexes.get(0).value2 === null && expression.indexes.get(1).value2 === null && expression.indexes.get(2).value2 === null){
+						return '''«expression.name.name»[«generateArithmeticExpression(expression.indexes.get(0).value,scope)»][«generateArithmeticExpression(expression.indexes.get(1).value,scope)»][«generateArithmeticExpression(expression.indexes.get(1).value,scope)»]'''
+					}else{
+						return ''''''
+					}
 				}
-			}
+			} else {
+				if (typeSystem.get(scope).get(expression.name.name + "[" + generateArithmeticExpression(expression.indexes.get(0).value,scope) + "]") !== null) {
+					return '''(«typeSystem.get(scope).get(expression.name.name+"["+generateArithmeticExpression(expression.indexes.get(0).value,scope)+"]")») «expression.name.name».get("«generateArithmeticExpression(expression.indexes.get(0).value,scope)»")'''
+				} else {
+					if(typeSystem.get(scope).get(expression.name.name).equals("HashMap"))
+						return '''«expression.name.name».get(«generateArithmeticExpression(expression.indexes.get(0).value,scope)»)'''
+					else if(typeSystem.get(scope).get(typeSystem.get(scope).get(expression.name.name)).equals("Table")){
+						return '''«typeSystem.get(scope).get(expression.name.name)».get(_«typeSystem.get(scope).get(expression.name.name)», «generateArithmeticExpression(expression.indexes.get(0).value,scope)»)'''
+					}
+				}
 			}
 		} else if (expression instanceof DatSingleObject) {
 			return '''«expression.name.name».get(«generateArithmeticExpression(expression.value1,scope)»,«generateArithmeticExpression(expression.value2,scope)»)'''
@@ -571,23 +1066,23 @@ class FLYGenerator extends AbstractGenerator {
 						if (expression.type.equals("Integer")) {
 							return '''
 								__
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl());
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
 								while(__res.getMessages().size() == 0){
 									__res = __sqs.receiveMessage(__recmsg);
 								}
 								Integer.parseInt(__res.getMessages().get(0).getBody());
-								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
 						} else if (expression.type.equals("Float")) {
 							return '''
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl());
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
 								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
 								while(__res.getMessages().size() == 0){
 								__res = __sqs.receiveMessage(__recmsg);
 								}
 								Double.parseDouble(__res.getMessages().get(0).getBody());
-								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
 						}
 					}
@@ -656,9 +1151,15 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateVariableFunction(VariableFunction expression, Boolean t, String scope) {
 		if (expression.target.right instanceof FlyFunctionCall) {
+			var feature=""
+			if(expression.feature.equals("wait")){
+				feature="get"
+			}else{
+				feature=expression.feature
+			}
 			var s = ""
 			s += "for(Future _el :" + last_func_result + "){
-						_el." + expression.feature + "("
+						_el." +feature+ "("
 			for (exp : expression.expressions) {
 				s += generateArithmeticExpression(exp, scope)
 				if (exp != expression.expressions.last()) {
@@ -669,8 +1170,9 @@ class FLYGenerator extends AbstractGenerator {
 					}"
 			return s
 		}
-		if (expression.target.typeobject.equals("dat") && expression.feature.equals("rows")) {
-			return '''
+		if (expression.target.typeobject.equals("dat")) {
+			if(expression.feature.equals("rows")){
+				return '''
 				HashMap<Integer, HashMap<String,Object> > __«expression.target.name»_rows = new HashMap<Integer, HashMap<String,Object>>();
 				    	for(int __i=0; __i<«expression.target.name».rowCount();__i++) {
 				    		HashMap<String, Object> __tmp = new HashMap<String, Object>();
@@ -680,6 +1182,33 @@ class FLYGenerator extends AbstractGenerator {
 							 		__«expression.target.name»_rows.put(__i,__tmp);
 							 	}
 			'''
+			}else if(expression.feature.equals("delete")){
+				var path = ((expression.target as DatDeclaration).right as DeclarationObject).features.get(1).value_s;
+				var filename = path.split("/").last 
+				return '''
+					«IF (expression.target as DatDeclaration).onCloud»
+						try {
+						    s3.deleteObject("bucket-"+__id_execution), «filename»);
+						} catch (AmazonServiceException e) {
+						    System.err.println(e.getErrorMessage());
+						    System.exit(1);
+						}
+					«ENDIF»
+				'''
+			}
+			
+		}else if(expression.target.typeobject.equals("channel")){
+			if(expression.feature.equals("close")){
+				println(((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0))
+				return '''
+					«IF !((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("local") »
+						__wait_on_«expression.target.name» = false;
+					«ELSEIF ((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("local") &&
+					((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.length==3»
+						__socket_server_«expression.target.name».close();
+					«ENDIF»
+				'''
+			}
 		} else {
 			var s = expression.target.name + "." + expression.feature + "("
 			for (exp : expression.expressions) {
@@ -762,12 +1291,12 @@ class FLYGenerator extends AbstractGenerator {
 				s += '''
 					for(Object key: «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».keySet()){
 						final Object _el = «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».get(key);
-						Future<Object> _f = thread_pool.submit(new Callable<Object>(){
+						Future<Object> _f = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
 							
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								
-								Object __ret = «call.target.name»();
+								Object __ret = «call.target.name»(«IF call.target.parameters.length==1»_el«ENDIF»);
 								«IF call.isIs_then»
 									«call.then.name»();
 								«ENDIF» 					
@@ -788,56 +1317,50 @@ class FLYGenerator extends AbstractGenerator {
 				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
 					equals("Table")) { // f_index is a reference to a Table
 			// if (call.isIsAsync && call.isIs_thenall) {
-			// //modify with the number of processor or the limit of «generateArithmeticExpression((call.input as FunctionInput).f_index)».rowCount() * «generateArithmeticExpression((call.input as FunctionInput).f_index)».columns().size();
 				s += '''
-					final int __numThread = 4; //modify;
-				'''
-				// }
-//				s += '''
-//					for(int _i=0; _i < «generateArithmeticExpression((call.input as FunctionInput).f_index)».rowCount();_i++){
-//						for(String _column: «generateArithmeticExpression((call.input as FunctionInput).f_index)».columnNames()){
-//							final Object _el =«generateArithmeticExpression((call.input as FunctionInput).f_index)».get(_i,«generateArithmeticExpression((call.input as FunctionInput).f_index)».columnIndex(_column)) ;
-//							Future<Object> _f = thread_pool.submit(new Callable<Object>(){
-//														
-//								public Object call() throws Exception {
-//									// TODO Auto-generated method stub
-//															
-//									Object __ret = «call.target.name»(_el);
-//									«IF call.isIs_then»
-//										«call.then.name»(__ret);
-//									«ENDIF»  		
-//									«IF call.isIsAsync && call.isIs_thenall»
-//										if(__count.getAndIncrement()==__numThread){
-//											__asyncTermination.put("Termination");
-//										}
-//									«ENDIF» 				
-//									return __ret;
-//								}
-//							});
-//							«call.target.name»_«func_ID»_return.add(_f);
-//						}
-//					}
-//				'''
-				s += '''
+					final int __numThread = (Integer) __fly_environment.get("«call.environment.name»").get("nthread");
 					ArrayList<Table> __list_data_«call.target.name» = new ArrayList<Table>();
 					for (int __i = 0; __i < __numThread; __i++) {
 						__list_data_«call.target.name».add(«((call.input as FunctionInput).f_index as VariableLiteral).variable.name».emptyCopy());
 					}
 					for(int __i=0; __i<«generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».rowCount();__i++) {
 						__list_data_«call.target.name».get(__i%__numThread).addRow(__i,«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
-«««						HashMap<String, Object> __tmp = new HashMap<String, Object>();
-«««						for (String __col : «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».columnNames()) {
-«««							__tmp.put(__col,«generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».get(__i, «generateArithmeticExpression((call.input as FunctionInput).f_index,scope)».columnIndex(__col)));
-«««						}
-«««						__list_data_«call.target.name».get(__i%__numThread).put(__i, __tmp);
 					}
+					final ServerSocket __server_«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»_data = new ServerSocket(9091,100);
 					for(int __i=0; __i<__numThread;__i++) {
 					    final int __index=__i;
-					    final Table __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» =__list_data_«call.target.name».get(__index) ; 
-					    Future<Object> __f = thread_pool.submit(new Callable<Object>() {
+					    «IF (call.environment.right as DeclarationObject).features.length==3»
+					    	final String __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» = __generateString(__list_data_«call.target.name».get(__index));
+					    «ELSE»
+					    	 final Table __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» =__list_data_«call.target.name».get(__index);
+					    «ENDIF»
+					    Future<Object> __f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
 							public Object call() throws Exception {
-								// TODO Auto-generated method stub
-								Object __ret = «call.target.name»(__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
+								«IF (call.environment.right as DeclarationObject).features.length==3»
+									«IF (call.environment.right as DeclarationObject).features.get(2).value_s.contains("python")»
+										ProcessBuilder __processBuilder = new ProcessBuilder("python",new File("src-gen/«call.target.name».py").getAbsolutePath()«IF call.target.parameters.length==1»,__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»«ENDIF»); //for the moment listen on 9090	
+									«ELSEIF (call.environment.right as DeclarationObject).features.get(2).value_s.contains("nodejs") »
+										ProcessBuilder __processBuilder = new ProcessBuilder("nodejs",new File("src-gen/«call.target.name».js").getAbsolutePath(),«IF call.target.parameters.length==1»,__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»«ENDIF»); //for the moment listen on 9090
+									«ENDIF»
+									Process __p;
+									try {
+										__p = __processBuilder.start();
+										Socket __socket_data = __server_«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»_data.accept() ;
+										OutputStreamWriter __socket_data_output = new OutputStreamWriter(__socket_data.getOutputStream());
+										__socket_data_output.write(__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
+										__socket_data_output.flush();
+										__socket_data.close();
+										__p.waitFor();
+										if(__p.exitValue()!=0){
+											System.out.println("Error in local execution of «call.target.name»");
+											System.exit(1);
+										}
+									} catch (Exception e) {
+										e.printStackTrace();
+									}
+									return null;
+								«ELSE»
+								Object __ret = «call.target.name»(«IF call.target.parameters.length==1»__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»«ENDIF»);
 								«IF call.isIs_then»
 									«call.then.name»();
 								«ENDIF»  		
@@ -847,27 +1370,108 @@ class FLYGenerator extends AbstractGenerator {
 									}
 								«ENDIF» 				
 								return __ret;
+								«ENDIF»
 							}
 							  			
 						});
 						«call.target.name»_«func_ID»_return.add(__f);
 					}
 				'''
-			} else { // f_index is a range
+			} else if ((call.input as FunctionInput).f_index instanceof VariableLiteral &&
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) !=
+					null &&
+				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
+					equals("File")) { // f_index is a File txt	
+					s+='''
+						final int __numThread = (Integer) __fly_environment.get("«call.environment.name»").get("nthread");
+						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name» = new ArrayList<StringBuilder>();
+						final ServerSocket __server_«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»_data = new ServerSocket(9091,100);
+						int __temp_i_«(call.input.f_index as VariableLiteral).variable.name» = 0;
+						Scanner __scanner_«(call.input.f_index as VariableLiteral).variable.name» = new Scanner(«(call.input.f_index as VariableLiteral).variable.name»);
+						while(__scanner_«(call.input.f_index as VariableLiteral).variable.name».hasNextLine()){
+							String __tmp_line = __scanner_«(call.input.f_index as VariableLiteral).variable.name».nextLine();
+							try{
+								__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name» % __numThread).append(__tmp_line);
+								__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name» % __numThread).append("\n");
+							}catch(Exception e){
+								__temp_«(call.input.f_index as VariableLiteral).variable.name».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name» % __numThread,new StringBuilder());
+								__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name» % __numThread).append(__tmp_line);
+								__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name» % __numThread).append("\n");
+							}
+							__temp_i_«(call.input.f_index as VariableLiteral).variable.name»++;
+						}
+						for(int __i=0; __i<__numThread;__i++) {
+						    final int __index=__i;
+						    «IF (call.environment.right as DeclarationObject).features.length==3»
+						    	final String __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» = __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__index).toString());
+						    «ELSE»
+						    	 final File __«((call.input as FunctionInput).f_index as VariableLiteral).variable.name» = new File(__temp_«(call.input.f_index as VariableLiteral).variable.name».get(__index).toString());
+						    «ENDIF»
+						    Future<Object> __f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+								public Object call() throws Exception {
+									«IF (call.environment.right as DeclarationObject).features.length==3»
+										«IF (call.environment.right as DeclarationObject).features.get(2).value_s.contains("python")»
+											ProcessBuilder __processBuilder = new ProcessBuilder("python3",new File("src-gen/«call.target.name».py").getAbsolutePath()); //for the moment listen on 9090	
+											__processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+										«ELSEIF (call.environment.right as DeclarationObject).features.get(2).value_s.contains("nodejs") »
+											ProcessBuilder __processBuilder = new ProcessBuilder("nodejs",new File("src-gen/«call.target.name».js").getAbsolutePath()); //for the moment listen on 9090
+											__processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
+										«ENDIF»
+										Process __p;
+										try {
+											__p = __processBuilder.start();
+											Socket __socket_data = __server_«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»_data.accept() ;
+											OutputStreamWriter __socket_data_output = new OutputStreamWriter(__socket_data.getOutputStream());
+											__socket_data_output.write(__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»);
+											__socket_data_output.flush();
+											__socket_data.close();
+											__p.waitFor();
+											if(__p.exitValue()!=0){
+												System.out.println("Error in local execution of «call.target.name»");
+												System.exit(1);
+											}
+										} catch (Exception e) {
+											e.printStackTrace();
+										}
+										return null;
+									«ELSE»
+									Object __ret = «call.target.name»(«IF call.target.parameters.length==1»__«((call.input as FunctionInput).f_index as VariableLiteral).variable.name»«ENDIF»);
+									«IF call.isIs_then»
+										«call.then.name»();
+									«ENDIF»  		
+									«IF call.isIsAsync && call.isIs_thenall»
+										if(__count.getAndIncrement()==__numThread){
+											__asyncTermination.put("Termination");
+										}
+									«ENDIF» 				
+									return __ret;
+									«ENDIF»
+								}
+								  			
+							});
+							«call.target.name»_«func_ID»_return.add(__f);
+						}
+					'''
+						
+					} else { // f_index is a range
 				if (call.isIsAsync && call.isIs_thenall) {
 					s += '''
 						final int __numThread = «((call.input as FunctionInput).f_index as RangeLiteral ).value2 - ((call.input as FunctionInput).f_index as RangeLiteral ).value1» - 1;
 					'''
 				}
+				
+				var value1 = if ((((call.input as FunctionInput).f_index as RangeLiteral ).value_l1) != null) ((call.input as FunctionInput).f_index as RangeLiteral ).value_l1.name  else ((call.input as FunctionInput).f_index as RangeLiteral ).value1  ;
+				var value2 = if ((((call.input as FunctionInput).f_index as RangeLiteral ).value_l2) != null) ((call.input as FunctionInput).f_index as RangeLiteral ).value_l2.name  else ((call.input as FunctionInput).f_index as RangeLiteral ).value2  ;
+
 				s += '''
-					for(int _i=«((call.input as FunctionInput).f_index as RangeLiteral ).value1»;_i<«((call.input as FunctionInput).f_index as RangeLiteral ).value2»;_i++){
+					for(int _i=«value1»;_i<«value2»;_i++){
 						final int __i = _i;
-						Future<Object> _f = thread_pool.submit(new Callable<Object>(){
+						Future<Object> _f = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
 							
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								
-								Object __ret = «call.target.name»(__i);
+								Object __ret = «call.target.name»(«IF call.target.parameters.length==1»__i«ENDIF»);
 								«IF call.isIs_then»
 									«call.then.name»();
 								«ENDIF»
@@ -894,6 +1498,7 @@ class FLYGenerator extends AbstractGenerator {
 							e.printStackTrace();
 						}
 					}
+					
 					«IF call.isIs_thenall»
 						«call.thenall.name»();
 					«ENDIF»
@@ -902,17 +1507,10 @@ class FLYGenerator extends AbstractGenerator {
 
 			if (call.isIsAsync && call.isIs_thenall) {
 				s += '''
-					Future<Object> __call = thread_pool.submit(new Callable<Object>(){
+					Future<Object> __call = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
 											
 							public Object call() throws Exception {
 								//TODO Auto-generated method stub
-					«««							for(Future _f : «call.target.name»_«func_ID»_return){
-«««									try{
-«««										_f.get();
-«««									} catch(Exception e){
-«««										e.printStackTrace();
-«««									}
-«««							}
 										__asyncTermination.take();	
 										«call.thenall.name»();
 								return null;
@@ -922,7 +1520,7 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 			}
 
-		} else { // no 'for' keyword
+		} else { // no 'in' keyword
 			var par_id = 0
 			var par_1 = ''' 
 			''' // parameter declaration
@@ -940,7 +1538,7 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			s += '''
 				«par_1»
-				Future<Object> _f_«func_ID» = thread_pool.submit(new Callable<Object>(){
+				Future<Object> _f_«func_ID» = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
 					
 					public Object call() throws Exception {
 						// TODO Auto-generated method stub
@@ -966,297 +1564,176 @@ class FLYGenerator extends AbstractGenerator {
 		return s
 	}
 
+
 	def generateAWSFlyFunctionCall(FlyFunctionCall call, String scope) {
-		// generate the aws lambda function
+		var async = call.isIsAsync
 		var cred = call.environment.name
 		var region = ((call.environment.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
 		var function = call.target.name
-		var ret = '''
-«««			//create the AWS SNS 
-«««			final AmazonSNS __sns = AmazonSNSClient.builder()
-«««				.withRegion("«region»")
-«««				.withCredentials(new AWSStaticCredentialsProvider(«cred»))
-«««				.build();
-«««			
-«««			//create the topic to publish the input for lambda function
-«««			CreateTopicRequest __createTopicRequest = new CreateTopicRequest("«function»_simulation_input");
-«««			CreateTopicResult __createTopicResult = __sns.createTopic(__createTopicRequest);
-«««			final String __topicArn = __createTopicResult.getTopicArn()
-«««			
-«««			//create input queue (trigger) for lambda function			
-«««			
-«««			CreateQueueRequest __create_request = new CreateQueueRequest("aws_«call.target.name»__input")
-«««			        .addAttributesEntry("DelaySeconds", "60")
-«««			        .addAttributesEntry("MessageRetentionPeriod", "86400");
-«««			CreateQueueResult __create_response = null;
-«««			try {
-«««			    __create_response = __sqs.createQueue(__create_request);
-«««			    
-«««			} catch (AmazonSQSException e) {
-«««			    if (!e.getErrorCode().equals("QueueAlreadyExists")) {
-«««			        throw e;
-«««			    }
-«««			}
-«««			
-«««			final String __aws_«call.target.name»__input_url = __create_response.getQueueUrl();
-«««			ArrayList<String> __«call.target.name»_list_attributes = new ArrayList<String>();
-«««			__«call.target.name»_list_attributes.add("QueueArn");
-«««			final String __aws_«call.target.name»__input_arn = __sqs.getQueueAttributes(new GetQueueAttributesRequest(__aws_«call.target.name»__input_url,__«call.target.name»_list_attributes)).getAttributes().get("QueueArn");
-«««						
-«««			//create the policy for the lambda function
-«««			final String __POLICY_DOCUMENT =		"{" +
-«««									"  \"Version\": \"2012-10-17\"," +
-«««									"  \"Statement\": [" +
-«««									"    {" +
-«««									"        \"Effect\": \"Allow\"," +
-«««									"        \"Action\": ["+
-«««									"			\"sqs:*\""+
-«««									" 		 ]," +
-«««									"        \"Resource\": \"*\"" +
-«««									"    }," +
-«««									"    {" +
-«««									"        \"Effect\": \"Allow\"," +
-«««									"        \"Action\": [" +
-«««									"            \"logs:CreateLogGroup\"," +
-«««									"            \"logs:CreateLogStream\"," +
-«««									"            \"logs:PutLogEvents\"" +
-«««									"       ]," +
-«««									"       \"Resource\": \"*\"" +
-«««									"    }" +
-«««									"   ]" +
-«««									"}";
-«««			
-«««			
-«««					//create the role for the lambda function
-«««					CreateRoleRequest __request_role = new CreateRoleRequest().withRoleName("«function»-lambda-sqs-execution")
-«««							.withAssumeRolePolicyDocument(""
-«««								+"{"
-«««								+"	  \"Version\": \"2012-10-17\","
-«««								+"	  \"Statement\": ["
-«««								+"	    {"
-«««								+"	      \"Effect\": \"Allow\","
-«««								+"	      \"Principal\": {"
-«««								+"	        \"Service\": \"lambda.amazonaws.com\" "
-«««								+"	      },"
-«««								+"	      \"Action\": \"sts:AssumeRole\" "
-«««								+"	    }"
-«««								+"	  ]"
-«««								+"	}"
-«««							);
-«««			
-«««					CreateRoleResult __roleResult = __iam.createRole(__request_role);
-«««			
-«««					PutRolePolicyRequest __putRolePolicyRequest = new PutRolePolicyRequest()
-«««							.withPolicyName("«function»-lambda-sqs-policy-rule")
-«««							.withPolicyDocument(__POLICY_DOCUMENT)
-«««							.withRoleName("«function»-lambda-sqs-execution");
-«««			
-«««					__iam.putRolePolicy(__putRolePolicyRequest);
-«««								
-«««					««« String __body=«generateBodyJs(call.target.body,call.target.name)»;
-««««««					try {
-««««««						BufferedWriter __out = new BufferedWriter(new FileWriter("«call.target.name».js"));
-««««««						__out.write(__body);
-««««««						__out.close();
-««««««					
-««««««					} catch (IOException e) {
-««««««						// TODO Auto-generated catch block
-««««««						e.printStackTrace();
-««««««					}
-«««					String __sourceFile = "src-gen/«call.target.name».js";
-«««					FileOutputStream __fos = new FileOutputStream("«call.target.name».zip");
-«««					ZipOutputStream __zipOut = new ZipOutputStream(__fos);
-«««					File __fileToZip = new File(__sourceFile);
-«««					FileInputStream __fis = new FileInputStream(__fileToZip);
-«««					ZipEntry __zipEntry = new ZipEntry(__fileToZip.getName());
-«««					__zipOut.putNextEntry(__zipEntry);
-«««					final byte[] __bytes = new byte[1024];
-«««					int __length;
-«««					while((__length = __fis.read(__bytes)) >= 0) {
-«««						__zipOut.write(__bytes, 0, __length);
-«««					}
-«««					__zipOut.close();
-«««					__fis.close();
-«««					__fos.close();
-«««					
-«««					final File __zipfile = new File("«call.target.name».zip");
-«««					final ByteBuffer __zipbuf;
-«««					try (FileChannel __zipch = FileChannel.open(__zipfile.toPath(), StandardOpenOption.READ)) {
-«««						final int __jarsz = (int) __zipch.size();
-«««						__zipbuf = ByteBuffer.allocate(__jarsz);
-«««						while (__zipbuf.remaining() > 0) {
-«««							__zipch.read(__zipbuf);
-«««						}
-«««						__zipbuf.flip();
-«««					} catch (final IOException iox) {
-«««						throw new RuntimeException("cannot load zip", iox);
-«««					}
-«««										
-«««					GetRoleRequest __getRoleRequest = new GetRoleRequest().withRoleName(__roleResult.getRole().getRoleName());
-«««					GetRoleResult __getRoleResult = __iam.getRole(__getRoleRequest);
-«««							
-«««					String __functionName = "lambda_«call.target.name»_"+System.currentTimeMillis();
-«««					CreateFunctionRequest __lambdaRequest = new CreateFunctionRequest()
-«««									.withFunctionName(__functionName)
-«««									.withRuntime(Runtime.Nodejs810)
-«««									.withRole(__getRoleResult.getRole().getArn())
-«««									.withDescription("lambda function automatically deployed")
-«««									.withTimeout(60)
-«««									.withMemorySize(128)
-«««									.withHandler("«call.target.name».handler").withCode(new FunctionCode().withZipFile(__zipbuf));
-«««					CreateFunctionResult __lambdaResponse = null;
-«««					boolean __create_function = false;
-«««					while(!__create_function){
-«««						try{
-«««								__lambdaResponse =__lambda.createFunction(__lambdaRequest);
-«««								__create_function= true;
-«««							}catch(Exception e){
-«««								
-«««							}
-«««					}
-«««					//add the trigger for AWS SNS service
-«««					AddPermissionRequest __reqscript_uest_permission = new AddPermissionRequest()
-«««							.withAction("lambda:CreateEventSourceMapping")
-«««							.withAction("lambda:ListEventSourceMappings")
-«««							.withAction("lambda:ListFunction")
-«««							.withStatementId("allow_sqs_to_call_lambda")
-«««							.withPrincipal("sqs.amazonaws.com")
-«««							.withSourceArn(__aws_«call.target.name»__input_arn)
-«««							.withFunctionName(__functionName);
-«««					
-«««					AddPermissionResult __response_permission = __lambda.addPermission(__request_permission);
-«««					
-«««					__lambda.createEventSourceMapping(new CreateEventSourceMappingRequest().
-«««											withEventSourceArn(__aws_«call.target.name»__input_arn)
-«««											.withBatchSize(1)
-«««											.withEnabled(true)
-«««											.withFunctionName(__functionName));
-					
-«««					SubscribeResult __subscribeResult = __sns.subscribe(new SubscribeRequest().withTopicArn(__topicArn)
-«««							        .withProtocol("lambda").withEndpoint(__lambdaResponse.getFunctionArn()));
-					
-					__fly_function_names.put("«call.target.name»","«call.target.name»_"+System.currentTimeMillis());
-					Runtime.getRuntime().exec("chmod +x src-gen/«cred»_deploy.sh");
-					Process p;
-					try {
-						StringBuffer output = new StringBuffer();
-						p = Runtime.getRuntime().exec("src-gen/«cred»_deploy.sh "+"«call.target.name» "+__fly_function_names.get("«call.target.name»"));
-						p.waitFor();
-						BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-						
-						String line = "";			
-						while ((line = reader.readLine())!= null) {
-							System.out.println(line );
-						}
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-					ExecutorService __poolAWS = Executors.newFixedThreadPool(4);
-		'''
-		// send message on sns to invoke the required 
+		var ret = ''''''
 		if (call.input.isIs_for_index) {
+			if (!async){
+				ret+='''
+					__sqs.createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution));
+					ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
+				'''
+			}
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
-
-					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
-					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
-					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
-						final String __s_temp = String.valueOf(___i);
-						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
+					int __num_proc_«call.target.name»_«func_ID»= Math.min( (int) __fly_environment.get("«cred»").get("nthread"), «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 »);
+					ArrayList<StringBuilder> __temp_Range_«func_ID» = new ArrayList<StringBuilder>();
+					int __temp_i_Range_«func_ID» = 0;
+					for (int ___i=«(call.input.f_index as RangeLiteral).value1»;___i < «(call.input.f_index as RangeLiteral).value2»;___i++){
+						try{
+							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(String.valueOf(___i));
+							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}catch(Exception e){
+							__temp_Range_«func_ID».add(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
+							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(String.valueOf(___i));
+							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}
+						__temp_i_Range_«func_ID»++;
+					}
+					for(int ___i=0;___i<__num_proc_«call.target.name»_«func_ID»;___i++){
+						final String __s_temp = __generateString(__temp_Range_«func_ID».get(___i).toString());
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
-								__sqs.sendMessage(new SendMessageRequest().
-												withQueueUrl(__input_queue_url).
-												withMessageBody(__s_temp)
-												);
+								__lambda.invoke(new InvokeRequest()
+									.withInvocationType("Event")
+									.withFunctionName("«call.target.name»_"+__id_execution)
+									.withPayload(__s_temp));
 								return null;
 							}
 						});
+					«IF !async»
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					«ENDIF»
 					}
-					__poolAWS.shutdown();
 				'''
 			} else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
 				 ret+='''
-					int __num_row=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
-					int __initial=0;
-					int __num_proc=1000;
-					ArrayList<Integer> __splits = new ArrayList<Integer>();
-					for(int __i=0;__i<__num_proc;__i++) {
-						if(__i<(__num_row%__num_proc)) {
-							__splits.add( __initial+((__num_row/__num_proc)+1));
-«««							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+((__num_row/__num_proc)+1)));
-«««							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
-«««							File __f = new File("table_"+__i+".csv");
-«««							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
-«««							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-«««							__s3.putObject(__putObjectRequest);
-«««							__f.delete(); 
-«««							final String __s_temp = __s3.getUrl("input-"+__fly_function_names.get("«call.target.name»").replaceAll("_","-")+"-bucket","table_"+__i+".csv").toString();
-«««							//System.out.println(s3.getUrl(bucket_name, "table_"+__i));
-							__initial+=(__num_row/__num_proc)+1;
+					int __num_row_«call.target.name»_«func_ID»=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
+					int __initial_«call.target.name»_«func_ID»=0;
+					int __num_proc_«call.target.name»_«func_ID» = Math.min((int) __fly_environment.get("«cred»").get("nthread"),__num_row_«call.target.name»_«func_ID»);
+					ArrayList<Integer> __splits_«call.target.name»_«func_ID» = new ArrayList<Integer>();
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++) {
+						if(__i<(__num_row_«call.target.name»_«func_ID»%__num_proc_«call.target.name»_«func_ID»)) {
+							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1));
+							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1;
 						}else{
-							__splits.add( __initial+((__num_row/__num_proc)));
-«««							Table «(call.input.f_index as VariableLiteral).variable.name»1 =«(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__initial, __initial+(__num_row/__num_proc)));
-«««							«(call.input.f_index as VariableLiteral).variable.name»1.write().csv("table_"+__i+".csv");
-«««							File __f = new File("table_"+__i+".csv");
-«««							PutObjectRequest __putObjectRequest = new PutObjectRequest(__bucket_name, "table_"+__i+".csv", __f);
-«««							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-«««							__s3.putObject(__putObjectRequest);
-«««							//System.out.println(s3.getUrl(bucket_name, "table_"+i));
-«««							__f.delete();
-							__initial+=(__num_row/__num_proc);
+							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)));
+							__initial+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
 						}
-					}				 
+					}
 					
-				
-					GetQueueUrlResult __input_queue_url_response = __sqs.getQueueUrl("__input_"+__fly_function_names.get("«call.target.name»")+"_queue");
-					final String  __input_queue_url = __input_queue_url_response.getQueueUrl();
-					for(int __i=0;__i<__num_proc;__i++){
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
 						final int __start;
 						final int __end;
 						if(__i==0) {
 							__start=0;
 						}else{
-							__start=__splits.get(__i-1);
+							__start=__splits_«call.target.name»_«func_ID».get(__i-1);
 						}
-						__end = __splits.get(__i);
-						Future<Object> f = __poolAWS.submit(new Callable<Object>() {
+						__end = __splits_«call.target.name»_«func_ID».get(__i);
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								//creare la stringa 
 								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)));
-								__sqs.sendMessage(new SendMessageRequest().
-												withQueueUrl(__input_queue_url).
-												withMessageBody(__s_temp)
-												);
+								__lambda.invoke(new InvokeRequest()
+									.withInvocationType("Event")
+									.withFunctionName("«call.target.name»_"+__id_execution)
+									.withPayload(__s_temp));
 								return null;
 							}
 						});
+					«IF !async»
+					__sync_list_«call.target.name».add(f);
+					«ENDIF»
 					}
-					__poolAWS.shutdown();
 				 '''
+			}else if (call.input.f_index instanceof VariableLiteral &&
+				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("File")){
+				ret+='''
+					int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+					ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+					int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
+					Scanner __scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new Scanner(«(call.input.f_index as VariableLiteral).variable.name»);
+					while(__scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».hasNextLine()){
+						String __tmp_line = __scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».nextLine();
+						try{
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}catch(Exception e){
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}
+						__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
+					}
+					__scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».close();
+					__num_proc_«call.target.name»_«func_ID» = Math.min(__num_proc_«call.target.name»_«func_ID»,__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»);
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+						final int __i_f = __i;
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								//creare la stringa 
+								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString());
+								__lambda.invoke(new InvokeRequest()
+									.withInvocationType("Event") 
+									.withFunctionName("«call.target.name»_"+__id_execution)
+									.withPayload(__s_temp));
+								return null;
+							}
+						});
+					«IF !async»
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					«ENDIF»
+					}
+				'''
 			}
+		}
+		if(!async){ 
+			ret+='''
+			for (Future<Object> f: __sync_list_«call.target.name»_«func_ID»){
+				try {
+					f.get();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (ExecutionException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			
+			int __messagges_«call.target.name»_«func_ID» = 0;
+			String __queue_url___syncTermination_«call.target.name»_«func_ID» =	__sqs.getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl();
+			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
+				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»).
+						withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
+				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+				for(Message msg : __res.getMessages()) { 
+					__messagges_«call.target.name»_«func_ID»++;
+					__sqs.deleteMessage(__queue_url___syncTermination_«call.target.name»_«func_ID», msg.getReceiptHandle());
+				}
+			}
+			__sqs.deleteQueue(new DeleteQueueRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»));
+			'''
 		}
 		// manage the callback
 		if (call.isIs_thenall) {
-			ret += '''
+			ret +='''
 				«call.thenall.name»();
 			'''
 		}
-		// clean the aws environtment
-//		ret += '''
-//«««			//delete the subscription to the topic and the top
-//«««			__sns.unsubscribe(new UnsubscribeRequest(__subscribeResult.getSubscriptionArn()));
-//«««			__sns.deleteTopic(__createTopicResult.getTopicArn());
-//«««			//delete the policy and the role
-//«««			__iam.deleteRolePolicy(new DeleteRolePolicyRequest().withPolicyName(__putRolePolicyRequest.getPolicyName()).withRoleName(__putRolePolicyRequest.getRoleName()));
-//«««			__iam.deleteRole(new DeleteRoleRequest().withRoleName(__roleResult.getRole().getRoleName()));
-//«««			//delete the function
-//«««			__lambda.deleteFunction(new DeleteFunctionRequest().withFunctionName(__functionName));
-//		'''
+		func_ID++
 		return ret
 	}
 
@@ -1267,15 +1744,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«(receive.target as ChannelDeclaration).name».take()'''
 		} else if (env.equals("aws")) {
 			return '''
-			«(receive.target as ChannelDeclaration).name».take()
-«««				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl());
-«««				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-«««				while(__res.getMessages().size() == 0){
-«««					__res = __sqs.receiveMessage(__recmsg);
-«««				}
-«««				__res.getMessages().get(0).getBody();
-«««				__sqs.deleteMessage(__sqs.getQueueUrl("«receive.target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle())
-			'''
+			«(receive.target as ChannelDeclaration).name».take()'''
 		}
 
 	}
@@ -1286,7 +1755,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
-				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»").getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
+				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
 				__sqs.sendMessage(__sndmsg)
 			'''
 		}
@@ -1309,46 +1778,32 @@ class FLYGenerator extends AbstractGenerator {
 
 	}
 
-	def generateFor(VariableFor index, ArithmeticExpression object, Expression body, String scope) {
+	def generateFor(ForIndex indexes, ArithmeticExpression object, Expression body, String scope) {
 		if (object instanceof CastExpression) {
 			if ((object as CastExpression).type.equals("Dat")) { // dat
 				var name = ((object as CastExpression).target as VariableLiteral).variable.name
-				typeSystem.get(scope).put((index as VariableDeclaration).name,name);
-				return '''
-					for(int _«name»=0; _«name»<((Table) «name»).rowCount();_«name»++){
-						
-						«IF body instanceof BlockExpression»
-							«FOR exp : body.expressions »
-								«generateExpression(exp,scope)»
-							«ENDFOR»
-						«ELSE»
-							«generateExpression(body,scope)»
-						«ENDIF»
-					}
-				'''
-//				return '''
-//					HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-//					for(int _i=0; _i<((Table) «((object as CastExpression).target as VariableLiteral).variable.name»).rowCount();_i++){
-//						for(String _column:((Table) «((object as CastExpression).target as VariableLiteral).variable.name»).columnNames()){
-//							«(index as VariableDeclaration).name».put("col",_column);
-//							«(index as VariableDeclaration).name».put("v",((Table)«((object as CastExpression).target as VariableLiteral).variable.name»).get(_i,((Table)«((object as CastExpression).target as VariableLiteral).variable.name»).columnIndex(_column)));
-//							«(index as VariableDeclaration).name».put("row",_i);
-//						«IF body instanceof BlockExpression»
-//							«FOR exp : body.expressions »
-//								«generateExpression(exp)»
-//							«ENDFOR»
-//						«ELSE»
-//							«generateExpression(body)»
-//						«ENDIF»
-//						}
-//					}
-//				'''
+				if (indexes.indices.length == 1 ){
+					typeSystem.get(scope).put((indexes.indices.get(0) as VariableDeclaration).name,name);
+					return '''
+						for(int _«name»=0; _«name»<((Table) «name»).rowCount();_«name»++){
+							
+							«IF body instanceof BlockExpression»
+								«FOR exp : body.expressions »
+									«generateExpression(exp,scope)»
+								«ENDFOR»
+							«ELSE»
+								«generateExpression(body,scope)»
+							«ENDIF»
+						}
+					'''	
+				}
 			} else if ((object as CastExpression).type.equals("Object")) { // object
-				return '''
-					HashMap<Object, Object> «(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-					for(Object _«(index as VariableDeclaration).name» : ( (HashMap<Object,Object>) «((object as CastExpression).target as VariableLiteral).variable.name»).keySet() ){
-							«(index as VariableDeclaration).name».put("k",_«(index as VariableDeclaration).name»);
-							«(index as VariableDeclaration).name».put("v",((HashMap<Object,Object>) «((object as CastExpression).target as VariableLiteral).variable.name»).get(_«(index as VariableDeclaration).name»));
+				if(indexes.indices.length==1){
+					return '''
+					for(Object _«(indexes.indices.get(0) as VariableDeclaration).name» : ( (HashMap<Object,Object>) «((object as CastExpression).target as VariableLiteral).variable.name»).keySet() ){
+							HashMap<Object, Object> «(indexes.indices.get(0) as VariableDeclaration).name» = new HashMap<Object,Object>();
+							«(indexes.indices.get(0) as VariableDeclaration).name».put("k",_«(indexes.indices.get(0) as VariableDeclaration).name»);
+							«(indexes.indices.get(0) as VariableDeclaration).name».put("v",((HashMap<Object,Object>) «((object as CastExpression).target as VariableLiteral).variable.name»).get(_«(indexes.indices.get(0) as VariableDeclaration).name»));
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
 								«generateExpression(exp,scope)»
@@ -1358,11 +1813,13 @@ class FLYGenerator extends AbstractGenerator {
 						«ENDIF»
 					}
 				'''
-
+				}
 			}
 		} else if (object instanceof RangeLiteral) {
+			var value1 = if (object.value_l1 != null) object.value_l1.name  else  object.value1  ;
+			var value2 = if (object.value_l2 != null) object.value_l2.name  else  object.value2  ;
 			return '''
-				for(int «(index as VariableDeclaration).name»=«object.value1»;«(index as VariableDeclaration).name»<«object.value2»;«(index as VariableDeclaration).name»++){
+				for(int «(indexes.indices.get(0) as VariableDeclaration).name»=«value1»;«(indexes.indices.get(0) as VariableDeclaration).name»<«value2»;«(indexes.indices.get(0) as VariableDeclaration).name»++){
 					«generateExpression(body,scope)»
 				}
 			'''
@@ -1372,25 +1829,11 @@ class FLYGenerator extends AbstractGenerator {
 				((object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("HashMap")) {
 				return '''
-					HashMap<Object, Object> «(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-					for(Object _«(index as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».keySet() ){
-							«(index as VariableDeclaration).name».put("k",_«(index as VariableDeclaration).name»);
-							«(index as VariableDeclaration).name».put("v",«(object as VariableLiteral).variable.name».get(_«(index as VariableDeclaration).name»));
-							«IF body instanceof BlockExpression»
-								«FOR exp : body.expressions »
-									«generateExpression(exp,scope)»
-								«ENDFOR»
-							«ELSE»
-								«generateExpression(body,scope)»
-							«ENDIF»
-					}
-				'''
-			} else if ((object as VariableLiteral).variable.typeobject.equals('dat') ||
-				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")) {
-				var name = (object as VariableLiteral).variable.name;
-				typeSystem.get(scope).put((index as VariableDeclaration).name,name);
-				return '''
-					for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
+					
+					for(Object _«(indexes.indices.get(0) as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».keySet() ){
+						HashMap<Object, Object> «(indexes.indices.get(0) as VariableDeclaration).name» = new HashMap<Object,Object>();
+						«(indexes.indices.get(0) as VariableDeclaration).name».put("k",_«(indexes.indices.get(0) as VariableDeclaration).name»);
+						«(indexes.indices.get(0) as VariableDeclaration).name».put("v",«(object as VariableLiteral).variable.name».get(_«(indexes.indices.get(0) as VariableDeclaration).name»));
 						«IF body instanceof BlockExpression»
 							«FOR exp : body.expressions »
 								«generateExpression(exp,scope)»
@@ -1400,29 +1843,48 @@ class FLYGenerator extends AbstractGenerator {
 						«ENDIF»
 					}
 				'''
-
-//				'''
-//					HashMap<Object,Object>«(index as VariableDeclaration).name» = new HashMap<Object,Object>();
-//					for(int _i=0; _i<«(object as VariableLiteral).variable.name».rowCount();_i++){
-//						for(String _column: «(object as VariableLiteral).variable.name».columnNames()){
-//							«(index as VariableDeclaration).name».put("col",_column);
-//							«(index as VariableDeclaration).name».put("v",«(object as VariableLiteral).variable.name».get(_i,«(object as VariableLiteral).variable.name».columnIndex(_column)));
-//							«(index as VariableDeclaration).name».put("row",_i);
-//							«IF body instanceof BlockExpression»
-//								«FOR exp : body.expressions »
-//									«generateExpression(exp)»
-//								«ENDFOR»
-//							«ELSE»
-//								«generateExpression(body)»
-//							«ENDIF»
-//						}
-//					}
-//				'''
-			}
+			} else if ((object as VariableLiteral).variable.typeobject.equals('dat')) {
+				var name = (object as VariableLiteral).variable.name;
+				var index_name = (indexes.indices.get(0) as VariableDeclaration).name
+				typeSystem.get(scope).put(index_name,name); 
+				println(typeSystem.get(scope).get(index_name))
+				if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("File")){
+					return '''
+						Scanner __scanner_«name» = new Scanner(«name»);
+						while(__scanner_«name».hasNextLine()){
+							String «index_name» = __scanner_«name».nextLine();
+							«IF body instanceof BlockExpression»
+								«FOR exp : body.expressions »
+									«generateExpression(exp,scope)»
+								«ENDFOR»
+							«ELSE»
+								«generateExpression(body,scope)»
+							«ENDIF»
+						}
+						__scanner_«name».close();
+					'''
+				}else if (typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")){
+					return '''
+						for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
+							«IF body instanceof BlockExpression»
+								«FOR exp : body.expressions »
+									«generateExpression(exp,scope)»
+								«ENDFOR»
+							«ELSE»
+								«generateExpression(body,scope)»
+							«ENDIF»
+						}
+					'''
+				}
+			} else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
+				
+			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Matrix")){
+				
+			} 
 		} else if (object instanceof VariableFunction) {
 			return '''
 			«generateVariableFunction(object as VariableFunction,false,scope)»
-			for(HashMap<String,Object> «(index as VariableDeclaration).name» : __«(object as VariableFunction).target.name»_rows.values()){
+			for(HashMap<String,Object> «(indexes.indices.get(0) as VariableDeclaration).name» : __«(object as VariableFunction).target.name»_rows.values()){
 				«IF body instanceof BlockExpression»
 					«FOR exp : body.expressions »
 						«generateExpression(exp,scope)»
@@ -1431,7 +1893,9 @@ class FLYGenerator extends AbstractGenerator {
 					«generateExpression(body,scope)»
 				«ENDIF»
 			}'''
-		}
+		} else if(object instanceof IndexObject){ // if  it's a sub-array or a sub-matrix
+			
+		} 
 	}
 
 	def generateIfExpression(IfExpression expression, String scope) {
@@ -1474,11 +1938,11 @@ class FLYGenerator extends AbstractGenerator {
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
-							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
+							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Double.parseDouble («((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
 						'''
 					}
 				} else { // local environment
-					if ((assignment.value as CastExpression).type.equals("Integer")) {
+					if ((assignment.value as CastExpression).type.equals("Integer")) { 
 						return '''
 							try{
 								«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
@@ -1506,10 +1970,6 @@ class FLYGenerator extends AbstractGenerator {
 						}catch(InterruptedException e1){
 							e1.printStackTrace();
 						}
-«««						ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl());
-«««						ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
-«««						«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(__res.getMessages().get(0).getBody());
-«««						__sqs.deleteMessage(__sqs.getQueueUrl("«(assignment.value as ChannelReceive).target.name»").getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 					'''
 				} else { // local environment
 					return '''
@@ -1537,41 +1997,47 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
-				if ((assignment.feature_obj as IndexObject).value != null) {
+				//println(typeSystem.get(scope))
+				if(typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).contains("Array")){
+					return '''«generateArithmeticExpression(assignment.feature_obj,scope)» = «generateArithmeticExpression(assignment.value,scope)»;'''
+				} else if(typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).contains("Matrix")){
+					return '''«generateArithmeticExpression(assignment.feature_obj,scope)» =  «generateArithmeticExpression(assignment.value,scope)»;'''
+				} else { 
 					typeSystem.get(scope).put(
 						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-							(assignment.feature_obj as IndexObject).value.name + "]",
+							generateArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(0).value,scope) + "]",
 						valuateArithmeticExpression(assignment.value, scope))
 					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put(«(assignment.feature_obj as IndexObject).value.name»,«generateArithmeticExpression(assignment.value,scope)»);
+						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put(«generateArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(0).value,scope)»,«generateArithmeticExpression(assignment.value,scope)»);
 					'''
-				} else {
-					typeSystem.get(scope).put(
-						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-							(assignment.feature_obj as IndexObject).valuet + "]",
-						valuateArithmeticExpression(assignment.value, scope))
-					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name».put("«(assignment.feature_obj as IndexObject).valuet»",«generateArithmeticExpression(assignment.value,scope)»);
-					'''
-				}
+				} 
+
 			}
 		}
 	}
 
 	def generateFunctionDefinition(FunctionDefinition definition) {
 		typeSystem.put(definition.name, new HashMap<String, String>())
+		for (exp : res.allContents.toIterable.filter(ConstantDeclaration)) {
+			typeSystem.get(definition.name).put(exp.name,typeSystem.get("main").get(exp.name))
+		}
+		var returnExp = checkReturn(definition.body)
 		var s = '''
 			
-				protected static Object «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+				protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
 				«FOR el : definition.body.expressions»
 				«generateExpression(el,definition.name)»
 				«ENDFOR»
-				«IF !checkReturn(definition.body)»
+				«IF returnExp == null»
 				return null;
 				«ENDIF»
 				}
+				
 		'''
-		return s
+		if (definition.body.expressions.filter(NativeExpression).length !=0)
+			return ''''''
+		else
+			return s
 	}
 	
 	
@@ -1600,7 +2066,19 @@ class FLYGenerator extends AbstractGenerator {
 									typeSystem.get("main").get(key));
 							}
 						}
-					} else {
+					} else if (typeobject.contains("Array")) {
+						typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
+						var tmp =  typeobject.split("_")
+						typeobject=tmp.get(1)+"[]"
+					} else if(typeobject.contains("Matrix")){
+						typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
+						var tmp =  typeobject.split("_")
+						if(tmp.length == 3){
+							typeobject=tmp.get(1)+"[][]"
+						}else if (tmp.length ==4){
+							typeobject=tmp.get(1)+"[][][]"
+						}
+					} else{
 						typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
 
 					}
@@ -1632,7 +2110,7 @@ class FLYGenerator extends AbstractGenerator {
 											typeSystem.get("main").get(key));
 									}
 								}
-							} else {
+							} else { //TODO support to array and matrices
 								typeSystem.get(name).put((param as VariableDeclaration).name, typeobject);
 							}
 
@@ -1698,10 +2176,26 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (exp instanceof NameObject) {
 			return typeSystem.get(scope).get(exp.name.name + "." + exp.value)
 		} else if (exp instanceof IndexObject) {
-			if(exp.value != null)
-				return typeSystem.get(scope).get(exp.name.name + "[" + exp.value + "]")
-			else
-				return typeSystem.get(scope).get(exp.name.name + "[" + exp.valuet + "]")
+			if (typeSystem.get(scope).get(exp.name.name).contains("Array")  ){
+				var type = typeSystem.get(scope).get(exp.name.name).split('_')
+				if(exp.indexes.get(0).value2===null){
+					return type.get(1)
+				}else{
+					if(type.get(1).equals("Integer")){
+						return "Integer[]"
+					}else if(type.get(1).equals("Double")){
+						return "Double[]"
+					}else if(type.get(1).equals("String")){
+						return "String[]"
+					}
+				}
+				
+			}else if(typeSystem.get(scope).get(exp.name.name).contains("Matrix")){
+				var type = typeSystem.get(scope).get(exp.name.name).split('_')
+				return type.get(1)
+			} else {
+				return typeSystem.get(scope).get(exp.name.name + "[" + generateArithmeticExpression(exp.indexes.get(0).value,scope) + "]")
+			}
 		} else if (exp instanceof DatTableObject) {
 			return "Table"
 		}
@@ -1713,8 +2207,6 @@ class FLYGenerator extends AbstractGenerator {
 		if (exp instanceof BinaryOperation) {
 			var left = valuateArithmeticExpression(exp.left, scope)
 			var right = valuateArithmeticExpression(exp.right, scope)
-			//println("leftType: "+left)
-			//println("rightType: "+right)
 			if (exp.feature.equals("+") || exp.feature.equals("-") || exp.feature.equals("*") ||
 				exp.feature.equals("/")) {
 				if (left.equals("String") || right.equals("String"))
@@ -1725,8 +2217,6 @@ class FLYGenerator extends AbstractGenerator {
 					return "Integer"
 			} else
 				return "Boolean"
-		} else if (exp instanceof PostfixOperation) {
-			return valuateArithmeticExpression(exp.operand, scope)
 		} else if (exp instanceof CastExpression) {
 			if (exp.type.equals("Object")) {
 				return "HashMap"
@@ -1768,10 +2258,12 @@ class FLYGenerator extends AbstractGenerator {
 					return "HashMap"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
-				} else if (exp.feature.equals("concat") || exp.feature.equals("substring") ||
+				} else if (exp.feature.equals("concat") || exp.feature.equals("substring")||
 					exp.feature.equals("toLowerCase") || exp.feature.equals("toUpperCase")) {
 					return "String"
-				} else {
+				} if(exp.feature.equals("charAt")){
+					return "char"
+				}else {
 					return "Boolean"
 				}
 			} else if (exp.target.typeobject.equals("random")) {
@@ -1792,10 +2284,10 @@ class FLYGenerator extends AbstractGenerator {
 		if (el instanceof BlockExpression) {
 			for (element : (el as BlockExpression).expressions) {
 				if (element instanceof FunctionReturn) {
-					return true
+					return element
 				}
 			}
-			return false
+			return null
 		}
 	}
 
@@ -1827,543 +2319,4 @@ class FLYGenerator extends AbstractGenerator {
 			return checkBlock(el.eContainer)
 		}
 	}
-
-	// ----------------------------- GENERATE JavaScript CODE -----------------------------------
-	def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
-		«generateBodyJs(func.body,func.parameters,func.name,env)»
-	'''
-
-	def generateBodyJs(BlockExpression exps,List<Expression> parameters, String name, String env) {
-		'''
-			«IF env == "aws"»
-				var AWS = require('aws-sdk');
-				var sqs = new AWS.SQS();
-			«ENDIF»
-			var __dataframe = require('dataframe-js').DataFrame;
-			let __params;
-			let __data;
-			
-			exports.handler = async (event,context) => {
-				
-				«FOR exp : parameters»
-				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event.Records[0].body));
-						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray()
-					«ELSE»
-						var «(exp as VariableDeclaration).name» = event.Records[0].body;
-					«ENDIF»
-				«ENDFOR»
-				«FOR exp : exps.expressions»
-					«generateJsExpression(exp,name)»
-				«ENDFOR»
-			}
-		'''
-	}
-
-	def generateJsExpression(Expression exp, String scope) {
-		var s = ''''''
-		if (exp instanceof ChannelSend) {
-			s += '''	
-				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»"}).promise();
-				__params = {
-					QueueName : "«exp.target.name»" 
-				};
-				
-				__params = {
-					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression)»),
-					QueueUrl : __data.QueueUrl
-				}
-				
-				__data = await sqs.sendMessage(__params).promise();
-			'''
-		} else if (exp instanceof VariableDeclaration) {
-			if (exp.typeobject.equals("var")) {
-				if (exp.right instanceof NameObjectDef) {
-					typeSystem.get(scope).put(exp.name, "HashMap")
-					s += '''var «exp.name» = {'''
-					var i = 0;
-					for (f : (exp.right as NameObjectDef).features) {
-						if (f.feature != null) {
-							typeSystem.get(scope).put(exp.name + "." + f.feature,
-								valuateArithmeticExpression(f.value, scope))
-							s = s + '''«f.feature»:«generateJsArithmeticExpression(f.value)»'''
-						} else {
-							typeSystem.get(scope).put(exp.name + "[" + i + "]",
-								valuateArithmeticExpression(f.value, scope))
-							s = s + '''«i»:«generateJsArithmeticExpression(f.value)»'''
-							i++
-						}
-						if (f != (exp.right as NameObjectDef).features.last) {
-							s += ''','''
-						}
-					}
-					s += '''}'''
-
-				} else {
-					s += '''
-						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression)»;
-					'''
-				}
-
-			} else if (exp.typeobject.equals("dat")) {
-				typeSystem.get(scope).put(exp.name, "Table")
-				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«generateJsArithmeticExpression((exp.right as NameObjectDef).features.get(1).value)»)
-					var «exp.name» = __«exp.name».toArray()
-				'''
-			}
-		} else if (exp instanceof IfExpression) {
-			s += '''
-				if(«generateJsArithmeticExpression(exp.cond)»)
-					«generateJsExpression(exp.then,scope)» 
-				«IF exp.^else != null»
-				else
-					«generateJsExpression(exp.^else,scope)»
-				«ENDIF»
-			'''
-		} else if (exp instanceof ForExpression) {
-			s += '''
-				«generateJsForExpression(exp,scope)»
-			'''
-		} else if (exp instanceof WhileExpression) {
-			s += '''
-				«generateJsWhileExpression(exp,scope)»
-			'''
-		} else if (exp instanceof BlockExpression) {
-			s += '''
-				«generateJsBlockExpression(exp,scope)»
-			'''
-		} else if (exp instanceof Assignment) {
-			s += '''
-				«generateJsAssignmentExpression(exp,scope)»
-			'''
-		} else if (exp instanceof PrintExpression) {
-			s += '''
-				console.log(«generateJsArithmeticExpression(exp.print)») 
-			'''
-		}
-		return s
-	}
-
-	def generateJsAssignmentExpression(Assignment assignment, String scope) {
-		if (assignment.feature != null) {
-			if (assignment.value instanceof CastExpression &&
-				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
-				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
-					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
-					if ((assignment.value as CastExpression).type.equals("Integer")) {
-						return '''
-							
-						'''
-					} else if ((assignment.value as CastExpression).type.equals("Double")) {
-						return '''
-							
-						'''
-					}
-				} else { // other environment
-					if ((assignment.value as CastExpression).type.equals("Integer")) {
-						return '''
-							
-						'''
-					} else if ((assignment.value as CastExpression).type.equals("Double")) {
-						return '''
-							
-						'''
-					}
-
-				}
-
-			} else if (assignment.value instanceof ChannelReceive) {
-				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
-					get(0).value_s.equals("aws")) { // aws environment
-					return '''
-					'''
-				} else { // other environment
-					return '''
-						
-					'''
-				}
-			} else {
-				return '''
-					«generateJsArithmeticExpression(assignment.feature)» «assignment.op» «generateJsArithmeticExpression(assignment.value)» 
-				'''
-			}
-		}
-		if (assignment.feature_obj !== null) {
-			if (assignment.feature_obj instanceof NameObject) {
-				typeSystem.get(scope).put(
-					((assignment.feature_obj as NameObject).name as VariableDeclaration).name + "." +
-						(assignment.feature_obj as NameObject).value,
-					valuateArithmeticExpression(assignment.value, scope))
-				return '''
-					«((assignment.feature_obj as NameObject).name as VariableDeclaration).name»["«(assignment.feature_obj as NameObject).value»"] = «generateJsArithmeticExpression(assignment.value)» 
-				'''
-			}
-			if (assignment.feature_obj instanceof IndexObject) {
-				if ((assignment.feature_obj as IndexObject).value != null) {
-					typeSystem.get(scope).put(
-						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-							(assignment.feature_obj as IndexObject).value.name + "]",
-						valuateArithmeticExpression(assignment.value, scope))
-					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).value.name»] = «generateJsArithmeticExpression(assignment.value)» 
-					'''
-				} else {
-					typeSystem.get(scope).put(
-						((assignment.feature_obj as IndexObject).name as VariableDeclaration).name + "[" +
-							(assignment.feature_obj as IndexObject).valuet + "]",
-						valuateArithmeticExpression(assignment.value, scope))
-					return '''
-						«((assignment.feature_obj as IndexObject).name as VariableDeclaration).name»[«(assignment.feature_obj as IndexObject).valuet»] = «generateJsArithmeticExpression(assignment.value)» 
-					'''
-				}
-			}
-		}
-	}
-
-	def generateJsWhileExpression(WhileExpression exp, String scope) {
-		'''
-			while(«generateJsArithmeticExpression(exp.cond)»)
-				«generateJsExpression(exp.body,scope)»
-		'''
-	}
-
-	def generateJsForExpression(ForExpression exp, String scope) {
-		if (exp.object instanceof CastExpression) {
-			if ((exp.object as CastExpression).type.equals("Dat")) {
-				return '''
-				for(var __«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name»»){
-					
-					var «(exp.index as VariableDeclaration).name» = «(exp.index as VariableDeclaration).name»[__«(exp.index as VariableDeclaration).name»];
-					«IF exp.body instanceof BlockExpression»
-						«FOR e: (exp.body as BlockExpression).expressions»
-							«generateJsExpression(e,scope)»
-						«ENDFOR»
-					«ELSE»
-						«generateJsExpression(exp.body,scope)»
-					«ENDIF»
-				}
-«««				for(__«(exp.index as VariableDeclaration).name» in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
-«««					var «(exp.index as VariableDeclaration).name» = «((exp.object as CastExpression).target as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
-«««					«IF exp.body instanceof BlockExpression»
-«««						«FOR e: (exp.body as BlockExpression).expressions»
-«««							«generateJsExpression(e,scope)»
-«««						«ENDFOR»
-«««					«ELSE»
-«««						«generateJsExpression(exp.body,scope)»
-«««					«ENDIF»
-«««					}
-				'''
-			} else if ((exp.object as CastExpression).type.equals("Object")) {
-				return '''
-					for(__key in «((exp.object as CastExpression).target as VariableLiteral).variable.name» ){
-						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«((exp.object as CastExpression).target as VariableLiteral).variable.name»[__key]} 
-						«IF exp.body instanceof BlockExpression»
-							«FOR e: (exp.body as BlockExpression).expressions»
-								«generateJsExpression(e,scope)»
-							«ENDFOR»
-						«ELSE»
-							«generateJsExpression(exp.body,scope)»	
-						«ENDIF»
-					}
-				'''
-			}
-		} else if (exp.object instanceof RangeLiteral) {
-			return '''
-				var «(exp.index as VariableDeclaration).name»;
-				for(«(exp.index as VariableDeclaration).name» = «(exp.object as RangeLiteral).value1» ;«(exp.index as VariableDeclaration).name» < «(exp.object as RangeLiteral).value2»; «(exp.index as VariableDeclaration).name»++)
-				«IF exp.body instanceof BlockExpression»
-					«generateJsBlockExpression(exp.body as BlockExpression,scope)»
-				«ELSE»
-					«generateJsExpression(exp.body,scope)»
-				«ENDIF»
-			'''
-		} else if (exp.object instanceof VariableLiteral) {
-			if (((exp.object as VariableLiteral).variable.typeobject.equals('var') &&
-				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
-				return '''
-					for(__key in «(exp.object as VariableLiteral).variable.name» ){
-						var «(exp.index as VariableDeclaration).name» = {k:__key, v:«(exp.object as VariableLiteral).variable.name»[__key]}
-						«IF exp.body instanceof BlockExpression»
-							«FOR e: (exp.body as BlockExpression).expressions»
-								«generateJsExpression(e,scope)»
-							«ENDFOR»
-						«ELSE»
-							«generateJsExpression(exp.body,scope)»	
-						«ENDIF»
-					}
-				'''
-			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
-				return '''
-					for(var __«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name» ){
-						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
-						«IF exp.body instanceof BlockExpression»
-							«FOR e: (exp.body as BlockExpression).expressions»
-								«generateJsExpression(e,scope)»
-							«ENDFOR»
-						«ELSE»
-							«generateJsExpression(exp.body,scope)»
-						«ENDIF»
-					}
-«««					for(__«(exp.index as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»){
-«««						var «(exp.index as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index as VariableDeclaration).name»]
-«««						«IF exp.body instanceof BlockExpression»
-«««							«FOR e: (exp.body as BlockExpression).expressions»
-«««								«generateJsExpression(e,scope)»
-«««							«ENDFOR»
-«««						«ELSE»
-«««							«generateJsExpression(exp.body,scope)»
-«««						«ENDIF»
-«««					}
-				'''
-			}
-		}
-	}
-
-	def generateJsBlockExpression(BlockExpression block, String scope) {
-		'''{
-			«FOR exp : block.expressions»
-				«generateJsExpression(exp,scope)»
-			«ENDFOR»
-			}'''
-	}
-
-	def generateJsArithmeticExpression(ArithmeticExpression exp) {
-		if (exp instanceof BinaryOperation) {
-			if (exp.feature.equals("and"))
-				return '''«generateJsArithmeticExpression(exp.left)» && «generateJsArithmeticExpression(exp.right)»'''
-			else if (exp.feature.equals("or"))
-				return '''«generateJsArithmeticExpression(exp.left)» || «generateJsArithmeticExpression(exp.right)»'''
-			else
-				return '''«generateJsArithmeticExpression(exp.left)» «exp.feature» «generateJsArithmeticExpression(exp.right)»'''
-		} else if (exp instanceof UnaryOperation) {
-			return '''«exp.feature»«generateJsArithmeticExpression(exp.operand)»'''
-		} else if (exp instanceof PostfixOperation) {
-			return '''«generateJsArithmeticExpression(exp.operand)»«exp.feature»'''
-		} else if (exp instanceof ParenthesizedExpression) {
-			return '''(«generateJsArithmeticExpression(exp.expression)»)'''
-		} else if (exp instanceof NumberLiteral) {
-			return '''«exp.value»'''
-		} else if (exp instanceof BooleanLiteral) {
-			return '''«exp.value»'''
-		} else if (exp instanceof FloatLiteral) {
-			return '''«exp.value»'''
-		}
-		if (exp instanceof StringLiteral) {
-			return '''"«exp.value»"'''
-		} else if (exp instanceof VariableLiteral) {
-			return '''«exp.variable.name»'''
-		} else if (exp instanceof VariableFunction) {
-			if (exp.target.typeobject.equals("random")) {
-				return '''Math.random()'''
-			} 
-		} else if (exp instanceof TimeFunction){
-			if(exp.value != null){
-				return '''(process.hrtime(«exp.value.name»))'''
-			}else{
-				return '''(process.hrtime())'''	
-			}
-		} else if (exp instanceof NameObject) {
-			return '''«(exp.name as VariableDeclaration).name».«exp.value»'''
-		} else if (exp instanceof IndexObject) {
-			if (exp.value !== null) {
-				return '''«(exp.name as VariableDeclaration).name»[«(exp.value.name)»]'''
-			} else {
-				return '''«(exp.name as VariableDeclaration).name»[«exp.valuet»]'''
-			}
-		} else if (exp instanceof CastExpression) {
-			return '''«generateJsArithmeticExpression(exp.target)»'''
-		} else if (exp instanceof MathFunction) {
-			return '''Math.«exp.feature»(«FOR par: exp.expressions» «generateJsArithmeticExpression(par)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
-		}else{
-			return ''''''
-		}
-	}
-	
-	//Generate the script for deployment
-	
-	def CharSequence compileScript(Resource resource, String name, String type_env)'''
-	#!/bin/bash
-		
-		if [ $# -eq 0 ]
-		  then
-		    echo "No arguments supplied. ./aws_deploy.sh <function_name> <generated_function_name>"
-		    exit 1
-		fi
-		
-		filename=$1
-		name=$2
-		
-		echo '{
-				"Version": "2012-10-17",
-				"Statement": [
-					{
-						"Effect": "Allow",
-						"Action": [
-							"sqs:DeleteMessage",
-							"sqs:GetQueueAttributes",
-							"sqs:ReceiveMessage",
-							"sqs:SendMessage",
-							"sqs:*"
-						],
-						"Resource": "*" 
-					},
-					{
-					"Effect": "Allow",
-					"Action": [
-						"s3:*"
-					],
-					"Resource": "*" 
-										},
-					{
-						"Effect":"Allow",
-						"Action": [
-							"logs:CreateLogGroup",
-							"logs:CreateLogStream",
-							"logs:PutLogEvents"
-						],
-						"Resource": "*"
-					}
-				]
-			}' > policyDocument.json
-		
-		echo '{
-					"Version": "2012-10-17",
-					"Statement": [
-						{
-							"Effect": "Allow",
-							"Principal": {
-								"Service": "lambda.amazonaws.com"
-							},
-							"Action": "sts:AssumeRole" 
-						}
-					]
-				}' > rolePolicyDocument.json
-		
-		#create role policy
-		
-		echo "creation of role lambda-sqs-execution ..."
-		
-		role_arn=$(aws iam get-role --role-name lambda-sqs-execution --query 'Role.Arn')
-		
-		if [ $? -eq 255 ]; then 
-			role_arn=$(aws iam create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
-		fi
-		
-		echo "role lambda-sqs-execution created at ARN "$role_arn
-		
-		aws iam put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
-		
-		mkdir ${name}_lambda
-		
-		cp src-gen/${filename}.js ./${name}_lambda
-		
-		cd ${name}_lambda
-		
-		
-		
-		echo "npm init..."
-		npm init -y
-		if [ $? -eq 0 ]; then
-		    echo "..."
-		else
-		    echo "npm init failed"
-		    exit 1
-		fi
-		
-		echo " npm instal aws-sdk "
-		npm install aws-sdk
-		if [ $? -eq 0 ]; then
-		    echo "..."
-		else
-		    echo "npm install aws-sdk failed"
-		    exit 1
-		fi
-		
-		echo "npm install async"
-		npm install async
-		if [ $? -eq 0 ]; then
-		    echo "..."
-		else
-		    echo "npm install async failed"
-		    exit 1
-		fi
-		
-		echo "npm install dataframe-js"
-		npm install dataframe-js
-		if [ $? -eq 0 ]; then
-		    echo "..."
-		else
-		    echo "npm install dataframe-js failed"
-		    exit 1
-		fi
-		
-		echo "Checking that aws-cli is installed"
-		which aws
-		if [ $? -eq 0 ]; then
-		      echo "aws-cli is installed, continuing..."
-		else
-		      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
-		      exit 1
-		fi
-		
-		echo ""
-		echo "creating .zip file"
-		
-		zip -r -q ../${name}_lambda.zip . 
-		
-		cd .. 
-			
-		#create the lambda function
-		echo "creation of the lambda function"
-		aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
-		
-		while [ $? -ne 0 ]; do
-			aws lambda create-function --function-name ${name} --zip-file fileb://${name}_lambda.zip --handler ${filename}.handler --runtime nodejs8.10 --role ${role_arn:1:-1} --memory-size 3008 --timeout 300
-		done
-		
-		echo "lambda function created"
-		
-		#craete sqs input queue
-		echo "create input queue"
-		echo '{
-			"VisibilityTimeout" : "1800",
-			"MessageRetentionPeriod" : "3600"
-		}' > queue_input.json
-		create_queue=$(aws sqs create-queue --queue-name __input_${name}_queue --attributes file://queue_input.json --output json --query 'QueueUrl')
-		echo "input queue created at arn: " ${create_queue:1:-1}
-		
-		#get queue attribute
-		echo "get attributes for input queue"
-		queue_attributes=$(aws sqs get-queue-attributes --queue-url ${create_queue:1:-1} --attribute-names QueueArn --output json --query 'Attributes.QueueArn')
-		echo ${queue_attributes:1:-1}
-		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda1 \
-		--action lambda:CraeteEventSourceMapping  --principal sqs.amazonaws.com
-		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda2 \
-		--action lambda:ListEventSourceMapping --principal sqs.amazonaws.com
-		
-		aws lambda add-permission --function-name ${name} --source-arn ${queue_attributes:1:-1}  --statement-id allow_sqs_to_call_lambda3 \
-		--action lambda:ListFunction --principal sqs.amazonaws.com
-		
-		
-		echo "lambda permission added"
-		
-		#create event source mapping
-		echo "create event source mapping"
-		aws lambda create-event-source-mapping --event-source-arn ${queue_attributes:1:-1} --function-name ${name} --batch-size 1 --enabled
-		echo "event source mapping created"
-		
-		# clear 
-		rm -r ${name}_lambda/
-		rm ${name}_lambda.zip
-		rm rolePolicyDocument.json
-		rm policyDocument.json
-		rm queue_input.json
-	
-	'''
-
 }

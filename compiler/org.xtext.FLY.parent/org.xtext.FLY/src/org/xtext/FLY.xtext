@@ -1,4 +1,4 @@
-grammar org.xtext.FLY with org.eclipse.xtext.common.Terminals
+grammar org.xtext.FLY with org.eclipse.xtext.common.Terminals 
 
 import "http://www.eclipse.org/emf/2002/Ecore" as ecore
 generate fLY "http://www.xtext.org/FLY"
@@ -22,12 +22,10 @@ Expression returns Expression:
 	ChannelReceive 		|
 	LocalFunctionCall 	|
 	SortExpression 		|
-	AtomicExpression 	|
-	VariableFunction
-;
-
-AtomicExpression:
-	'atomic' expressions=BlockExpression
+	VariableFunction	|
+	PostfixOperation	|
+	RequireExpression 	|
+	NativeExpression	
 ;
 
 SortExpression:
@@ -54,12 +52,21 @@ IfExpression:
 
 ForExpression:
 	{ForExpression}
-	'for' index=VariableFor 'in' object=ArithmeticExpression body=Expression 
+	'for' index=ForIndex 'in' object=ArithmeticExpression ('by' delimeter=ForDelimeter )? body=Expression 
+;
+
+ForDelimeter:
+	type='row' | 
+	type='col' |
+	type='delimeter' del=STRING
+;
+
+ForIndex:
+	 indices+=VariableFor (',' indices+=VariableFor )*
 ;
 
 VariableFor:
-	{VariableDeclaration}
-	 name=ID
+	{VariableDeclaration} name=ID
 ;
 
 
@@ -74,17 +81,29 @@ BlockExpression:
 ;
 
 VariableDeclaration:
-	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))	|
-	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=Object)) 								|
-	{RandomDeclaration} typeobject='random' =>(name = ID) 																		|
-	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 										|
-	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)													|
-	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)											|
-	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])
+	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))											|
+	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 																				|
+	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=DeclarationObject) (onCloud?='on' environment=[EnvironmentDeclaration])? )		|
+	{RandomDeclaration} typeobject='random' =>(name = ID) 																												|
+	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)																							|
+	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)																					|
+	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])																	|
+	{ConstantDeclaration} typeobject='const' =>(name = ID '='  (right=ArithmeticExpression | right=Object ))															
 ;
 
 Object:
-	{NameObjectDef}  '[' (features+=FeautureName)? (',' features+=FeautureName)* ']' 
+	{NameObjectDef}  '{' (features+=FeautureName)? (',' features+=FeautureName)* '}' |
+	{ArrayDefinition} type=Type indexes+=Index(indexes+=Index)*    		 |
+	{ArrayInit}		'[' values+=(ArrayValue)? (',' values+=(ArrayValue))* ']'
+;
+
+Index:
+	"[" value=ArithmeticExpression "]" 
+;
+
+ArrayValue:
+	{ArrayValue} '['(values+=ArrayValue)? (',' values+=ArrayValue)* ']' |
+	ArithmeticExpression
 ;
 
 DeclarationObject:
@@ -92,23 +111,27 @@ DeclarationObject:
 ;
 
 DeclarationFeature:
-	{DeclarationFeature} feature=ID ':' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
+	{DeclarationFeature} feature=ID '=' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
 ;
 
 FeautureName:
-	feature=ID ':' value=ArithmeticExpression 	| 
-	value=ArithmeticExpression ;
+	feature=ID '=' value=ArithmeticExpression 	| 
+	value=ArithmeticExpression |
+	Object;
 
 ObjectLiteral:
-	{NameObject} name=[VariableDeclaration] =>( "." value=ID)																					| 
-	{IndexObject} name=[VariableDeclaration] =>("[" valuet=INT "]") 																			| 
-	{IndexObject} name=[VariableDeclaration] =>("[" value=[VariableDeclaration] "]") 															| 
-	{DatSingleObject} name=[VariableDeclaration] =>("["(value1=(NumberLiteral | StringLiteral)) "," (value2=(NumberLiteral|StringLiteral)) "]")	|
-	{DatTableObject} name=[VariableDeclaration] =>("[" (range1=RangeLiteral | range1_t=NumberLiteral) "," (range2=RangeLiteral) "]")
+	{NameObject} name=[VariableDeclaration] "." value=ID																						| 
+	{IndexObject} name=[VariableDeclaration] indexes+=SubIndex (indexes+=SubIndex)*																	| 
+	{DatSingleObject} name=[DatDeclaration] "["(value1=(NumberLiteral | StringLiteral)) "," (value2=(NumberLiteral|StringLiteral)) "]"			|
+	{DatTableObject} name=[DatDeclaration] "[" (range1=RangeLiteral | range1_t=NumberLiteral) "," (range2=RangeLiteral) "]"
+;
+
+SubIndex:
+	"[" value=ArithmeticExpression (":" value2=ArithmeticExpression)? "]" 
 ;
 
 RangeLiteral:
-	{RangeLiteral} "[" value1=INT ":" value2=INT "]" 
+	{RangeLiteral} "[" (value1=INT | value_l1=[VariableDeclaration]) ":" (value2=INT | value_l2=[VariableDeclaration]) "]" 
 ;
 
 MathFunction:
@@ -157,6 +180,22 @@ FlyFunctionCall:
 FunctionInput:
 	{FunctionInput} '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')' | 
 	{FunctionInput} is_for_index?='in' f_index=ArithmeticExpression
+;
+
+NativeExpression:
+	{NativeExpression} 'native' code=NATIVE_CODE  
+;
+
+RequireExpression:
+	{RequireExpression} 'require' '(' lib = STRING ')' 'on' environment=[EnvironmentDeclaration]
+;
+
+PostfixOperation:
+	variable=VariableLiteral feature=OpPostfix
+;
+
+OpPostfix:
+	'++' | '--'
 ;
 
 //rules for Aritmethic Expression
@@ -223,20 +262,13 @@ OpUnary:
 ;
 
 CastExpression returns ArithmeticExpression:
-	PostfixOperation (=>({CastExpression.target=current} op=('as' | 'parse') ) type=Type)*
+	PrimaryExpression (=>({CastExpression.target=current} op=('as' | 'parse') ) type=Type)*
 ;
 
 Type:
 	'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double'
 ;
 
-PostfixOperation returns ArithmeticExpression:
-	PrimaryExpression =>({PostfixOperation.operand=current} feature=OpPostfix)?
-;
-
-OpPostfix:
-	'++' | '--'
-;
 
 PrimaryExpression returns ArithmeticExpression:
 	ParenthesizedExpression	|
@@ -264,7 +296,7 @@ TimeFunction returns ArithmeticExpression:
 ;
 
 BooleanLiteral returns ArithmeticExpression:
-	{BooleanLiteral} value="false" |{BooleanLiteral} value="true"
+	{BooleanLiteral} value="false" | {BooleanLiteral} value="true"
 ;
 
 NumberLiteral returns ArithmeticExpression:
@@ -291,6 +323,8 @@ ParenthesizedExpression returns ArithmeticExpression:
 
 terminal FLOAT returns ecore::EFloat:
 	INT '.' INT;
+	
+terminal NATIVE_CODE: '<<<' -> '>>>';
 
 @Override 
 terminal ID:
