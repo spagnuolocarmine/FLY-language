@@ -431,33 +431,4 @@
 			type="text">
 		</fileTypes>
 	</extension>
-	<extension
-		point="org.eclipse.ui.newWizards">
-		<category id="org.xtext.ui.category" name="FLY">
-		</category>
-		<wizard
-			category="org.xtext.ui.category"
-			class="org.xtext.ui.FLYExecutableExtensionFactory:org.eclipse.xtext.ui.wizard.template.TemplateNewProjectWizard"
-			id="org.xtext.ui.wizard.FLYNewProjectWizard"
-			name="FLY Project"
-			icon="icons/new_FLY_proj.gif"
-			project="true">
-		</wizard>
-	</extension>
-	<extension
-	      point="org.eclipse.xtext.ui.projectTemplate">
-	   <projectTemplateProvider
-	         class="org.xtext.ui.wizard.FLYProjectTemplateProvider"
-	         grammarName="org.xtext.FLY">
-	   </projectTemplateProvider>
-	</extension>
-	<extension
-		point="org.eclipse.ui.perspectiveExtensions">
-		<perspectiveExtension targetID="org.eclipse.ui.resourcePerspective">
-			<newWizardShortcut id="org.xtext.ui.wizard.FLYNewProjectWizard"/>
-		</perspectiveExtension>
-		<perspectiveExtension targetID="org.eclipse.jdt.ui.JavaPerspective">
-			<newWizardShortcut id="org.xtext.ui.wizard.FLYNewProjectWizard"/>
-		</perspectiveExtension>
-	</extension>
 </plugin>

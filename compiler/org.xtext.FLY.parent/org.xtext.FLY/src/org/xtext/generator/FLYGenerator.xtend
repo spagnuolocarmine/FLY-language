@@ -92,19 +92,18 @@ class FLYGenerator extends AbstractGenerator {
 		
 		// generate .js or .py file
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			var is_async = element.isIsAsync
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
 			if(type_env.equals("local") && ((element.environment.right as DeclarationObject).features.length==3)){
-				pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,is_async);
+				pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
 			}
 			if (type_env != "local") {
 				var language = ((element.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).
 				value_s;
 				if (language.contains("python")){
-					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,is_async); 
+					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false); 
 				}else if (language.contains("nodejs")) {
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,is_async);
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution);
 				}
 			}
 		}
@@ -356,6 +355,8 @@ class FLYGenerator extends AbstractGenerator {
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
+					«IF  !call.isIsAsync »
+					«ENDIF»
 					'''
 			}
 			else 
@@ -1564,8 +1565,8 @@ class FLYGenerator extends AbstractGenerator {
 		return s
 	}
 
-
 	def generateAWSFlyFunctionCall(FlyFunctionCall call, String scope) {
+		// generate the aws lambda function
 		var async = call.isIsAsync
 		var cred = call.environment.name
 		var region = ((call.environment.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
@@ -1580,22 +1581,9 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
-					int __num_proc_«call.target.name»_«func_ID»= Math.min( (int) __fly_environment.get("«cred»").get("nthread"), «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 »);
-					ArrayList<StringBuilder> __temp_Range_«func_ID» = new ArrayList<StringBuilder>();
-					int __temp_i_Range_«func_ID» = 0;
-					for (int ___i=«(call.input.f_index as RangeLiteral).value1»;___i < «(call.input.f_index as RangeLiteral).value2»;___i++){
-						try{
-							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(String.valueOf(___i));
-							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-						}catch(Exception e){
-							__temp_Range_«func_ID».add(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
-							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(String.valueOf(___i));
-							__temp_Range_«func_ID».get(__temp_i_Range_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-						}
-						__temp_i_Range_«func_ID»++;
-					}
-					for(int ___i=0;___i<__num_proc_«call.target.name»_«func_ID»;___i++){
-						final String __s_temp = __generateString(__temp_Range_«func_ID».get(___i).toString());
+					int __num_proc_«call.target.name»_«func_ID» = «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 » ;
+					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
+						final String __s_temp = String.valueOf(___i);
 						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
@@ -1617,9 +1605,9 @@ class FLYGenerator extends AbstractGenerator {
 				 ret+='''
 					int __num_row_«call.target.name»_«func_ID»=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
 					int __initial_«call.target.name»_«func_ID»=0;
-					int __num_proc_«call.target.name»_«func_ID» = Math.min((int) __fly_environment.get("«cred»").get("nthread"),__num_row_«call.target.name»_«func_ID»);
+					int __num_proc_«call.target.name»_«func_ID» = (int) __fly_environment.get("«cred»").get("nthread");
 					ArrayList<Integer> __splits_«call.target.name»_«func_ID» = new ArrayList<Integer>();
-					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++) {
+					for(int __i=0;__i<__num_proc;__i++) {
 						if(__i<(__num_row_«call.target.name»_«func_ID»%__num_proc_«call.target.name»_«func_ID»)) {
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1));
 							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1;
@@ -1627,7 +1615,7 @@ class FLYGenerator extends AbstractGenerator {
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)));
 							__initial+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
 						}
-					}
+					}				 
 					
 					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
 						final int __start;
@@ -1676,7 +1664,6 @@ class FLYGenerator extends AbstractGenerator {
 						__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
 					}
 					__scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».close();
-					__num_proc_«call.target.name»_«func_ID» = Math.min(__num_proc_«call.target.name»_«func_ID»,__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»);
 					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
 						final int __i_f = __i;
 						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {

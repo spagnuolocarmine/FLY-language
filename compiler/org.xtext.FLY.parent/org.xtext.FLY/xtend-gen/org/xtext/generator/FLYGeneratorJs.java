@@ -64,33 +64,29 @@ import org.xtext.fLY.WhileExpression;
 
 @SuppressWarnings("all")
 public class FLYGeneratorJs extends AbstractGenerator {
-  private String name;
+  private String name = "";
   
-  private String env;
+  private String env = "";
   
-  private String language;
+  private String language = "";
   
-  private int memory;
+  private int memory = 0;
   
-  private int nthread;
+  private int nthread = 0;
   
-  private int time;
+  private int time = 0;
   
-  private FunctionDefinition root;
+  private FunctionDefinition root = null;
   
-  private long id_execution;
-  
-  private boolean local;
-  
-  private boolean async;
+  private Object id_execution = null;
   
   private HashMap<String, HashMap<String, String>> typeSystem = null;
   
-  public void generateJS(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id, final boolean local, final boolean async) {
+  public void generateJS(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id) {
     this.name = name_file;
     this.root = func;
     this.typeSystem = scoping;
-    this.id_execution = id;
+    this.id_execution = Long.valueOf(id);
     EObject _right = environment.getRight();
     this.env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
     EObject _right_1 = environment.getRight();
@@ -101,8 +97,6 @@ public class FLYGeneratorJs extends AbstractGenerator {
     this.memory = ((DeclarationObject) _right_3).getFeatures().get(6).getValue_t();
     EObject _right_4 = environment.getRight();
     this.time = ((DeclarationObject) _right_4).getFeatures().get(7).getValue_t();
-    this.local = local;
-    this.async = async;
     this.doGenerate(input, fsa, context);
   }
   
@@ -199,37 +193,6 @@ public class FLYGeneratorJs extends AbstractGenerator {
         String _generateJsExpression = this.generateJsExpression(exp_2, name);
         _builder.append(_generateJsExpression, "\t");
         _builder.newLineIfNotEmpty();
-      }
-    }
-    {
-      if ((!this.async)) {
-        _builder.append("\t");
-        _builder.append("__syncTermination = await sqs.getQueueUrl({ QueueName: \"__syncTermination_");
-        _builder.append(name, "\t");
-        _builder.append("_\'${id}\'\"}).promise();");
-        _builder.newLineIfNotEmpty();
-        _builder.append("\t");
-        _builder.append("\t\t\t\t");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.append("__params = {");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.append("\t");
-        _builder.append("MessageBody : JSON.stringify(\'finish\'),");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.append("\t");
-        _builder.append("QueueUrl : __syncTermination.QueueUrl");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.append("}");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.newLine();
-        _builder.append("\t");
-        _builder.append("__syncTermination = await sqs.sendMessage(__params).promise();");
-        _builder.newLine();
       }
     }
     _builder.append("}");

@@ -62,18 +62,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 	int nthread
 	int memory
 	int time
-	boolean async
 	Resource resourceInput
 	boolean isLocal
 
 	def generatePython(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context, String name_file,
 		FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
-		long id, boolean local, boolean async) {
+		long id, boolean local) {
 		name = name_file
 		root = func
 		typeSystem = scoping
 		id_execution = id
-		this.async = async
 		if (!local) {
 			env = (environment.right as DeclarationObject).features.get(0).value_s
 			language = (environment.right as DeclarationObject).features.get(4).value_s
@@ -224,11 +222,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			«IF env == "aws"»				
 			import boto3
 			sqs = boto3.resource('sqs')
-			
-			«IF !async»
-				__syncTermination = sqs.get_queue_by_name(QueueName='__syncTermination_«name»_"${id}"')
-			«ENDIF»
-			
+
 			«FOR chName : channelNames»
 				«chName» = sqs.get_queue_by_name(QueueName='«chName»_"${id}"')
 			«ENDFOR»
@@ -248,9 +242,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 				«FOR exp : exps.expressions»
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
-				«IF !async»
-				__syncTermination.send_message(MessageBody=json.dumps('finish'))
-				«ENDIF»
 		'''
 	}
 

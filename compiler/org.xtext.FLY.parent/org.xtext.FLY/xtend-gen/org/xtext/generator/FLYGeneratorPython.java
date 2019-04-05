@@ -90,18 +90,15 @@ public class FLYGeneratorPython extends AbstractGenerator {
   
   private int time;
   
-  private boolean async;
-  
   private Resource resourceInput;
   
   private boolean isLocal;
   
-  public void generatePython(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id, final boolean local, final boolean async) {
+  public void generatePython(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id, final boolean local) {
     this.name = name_file;
     this.root = func;
     this.typeSystem = scoping;
     this.id_execution = Long.valueOf(id);
-    this.async = async;
     if ((!local)) {
       EObject _right = environment.getRight();
       this.env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
@@ -371,15 +368,6 @@ public class FLYGeneratorPython extends AbstractGenerator {
           _builder.newLine();
           _builder.newLine();
           {
-            if ((!this.async)) {
-              _builder.append("__syncTermination = sqs.get_queue_by_name(QueueName=\'__syncTermination_");
-              _builder.append(name);
-              _builder.append("_\"${id}\"\')");
-              _builder.newLineIfNotEmpty();
-            }
-          }
-          _builder.newLine();
-          {
             for(final Object chName : channelNames) {
               _builder.append(chName);
               _builder.append(" = sqs.get_queue_by_name(QueueName=\'");
@@ -434,13 +422,6 @@ public class FLYGeneratorPython extends AbstractGenerator {
           String _generatePyExpression = this.generatePyExpression(exp_1, name, local);
           _builder.append(_generatePyExpression, "\t");
           _builder.newLineIfNotEmpty();
-        }
-      }
-      {
-        if ((!this.async)) {
-          _builder.append("\t");
-          _builder.append("__syncTermination.send_message(MessageBody=json.dumps(\'finish\'))");
-          _builder.newLine();
         }
       }
       _xblockexpression = _builder;

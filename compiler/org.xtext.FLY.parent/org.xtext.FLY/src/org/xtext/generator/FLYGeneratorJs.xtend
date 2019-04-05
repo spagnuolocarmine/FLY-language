@@ -51,31 +51,26 @@ import org.xtext.fLY.ArrayValue
 
 class FLYGeneratorJs extends AbstractGenerator {
 	
-	String name
-	String env
-	String language
-	int memory
-	int nthread 
-	int time
-	FunctionDefinition root
-	long id_execution
-	boolean local 
-	boolean async 
+	String name= ""
+	String env = ""
+	String language = ""
+	int memory = 0
+	int nthread = 0
+	int time = 0
+	FunctionDefinition root = null
+	var id_execution = null
 	HashMap<String, HashMap<String, String>> typeSystem = null
 	
-	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, 
-		EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local,boolean async){
-		this.name=name_file
-		this.root = func
-		this.typeSystem=scoping
-		this.id_execution = id
-		this.env = (environment.right as DeclarationObject).features.get(0).value_s
-		this.language = (environment.right as DeclarationObject).features.get(4).value_s
-		this.nthread = (environment.right as DeclarationObject).features.get(5).value_t
-		this.memory = (environment.right as DeclarationObject).features.get(6).value_t
-		this.time = (environment.right as DeclarationObject).features.get(7).value_t
-		this.local = local
-		this.async = async
+	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id){
+		name=name_file
+		root = func
+		typeSystem=scoping
+		id_execution = id
+		env = (environment.right as DeclarationObject).features.get(0).value_s
+		language = (environment.right as DeclarationObject).features.get(4).value_s
+		nthread = (environment.right as DeclarationObject).features.get(5).value_t
+		memory = (environment.right as DeclarationObject).features.get(6).value_t
+		time = (environment.right as DeclarationObject).features.get(7).value_t
 		doGenerate(input,fsa,context) 
 	}
 	
@@ -119,16 +114,6 @@ class FLYGeneratorJs extends AbstractGenerator {
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
 				«ENDFOR» 
-				«IF !async»
-				__syncTermination = await sqs.getQueueUrl({ QueueName: "__syncTermination_«name»_'${id}'"}).promise();
-								
-				__params = {
-					MessageBody : JSON.stringify('finish'),
-					QueueUrl : __syncTermination.QueueUrl
-				}
-				
-				__syncTermination = await sqs.sendMessage(__params).promise();
-				«ENDIF»
 			}
 		'''
 	}

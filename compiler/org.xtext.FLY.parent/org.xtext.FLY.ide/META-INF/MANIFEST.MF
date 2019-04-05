@@ -13,4 +13,3 @@ Require-Bundle: org.xtext.FLY,
 Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Export-Package: org.xtext.ide.contentassist.antlr,
  org.xtext.ide.contentassist.antlr.internal
-
