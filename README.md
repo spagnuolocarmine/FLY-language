@@ -2,6 +2,7 @@
 [![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 FLY is an open source Domain Specific Language for scientific computing on multi cloud exploiting FaaS.
+
 **_FLY_ allows the programmers to easily and immediatily exploit multi cloud environments for distributed computation.** 
 
 ## General Information
