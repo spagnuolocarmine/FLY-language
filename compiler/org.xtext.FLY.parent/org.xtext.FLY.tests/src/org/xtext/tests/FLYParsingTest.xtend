@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.^extension.ExtendWith
 import org.xtext.fLY.Fly
+import org.junit.runner.RunWith
+import org.eclipse.xtext.testing.XtextRunner
+
 
 @ExtendWith(InjectionExtension)
 @InjectWith(FLYInjectorProvider)
@@ -21,7 +24,9 @@ class FLYParsingTest {
 	@Test
 	def void loadModel() {
 		val result = parseHelper.parse('''
-			Hello Xtext!
+			for in [0:10]{
+				println a
+			}
 		''')
 		Assertions.assertNotNull(result)
 		val errors = result.eResource.errors

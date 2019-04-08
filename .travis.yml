@@ -1,4 +1,10 @@
 language: java
+install:
+  - cd compiler/org.xtext.FLY.parent
+  - mvn test-compile -DskipTests=true -Dmaven.javadoc.skip=true -B -V
 script:
-    - cd compiler/org.xtext.FLY.parent
-    - mvn clean package
+  - cd compiler/org.xtext.FLY.parent
+  - mvn test jacoco:report
+after_success:
+  - cd compiler/org.xtext.FLY.parent
+  - mvn coveralls:report

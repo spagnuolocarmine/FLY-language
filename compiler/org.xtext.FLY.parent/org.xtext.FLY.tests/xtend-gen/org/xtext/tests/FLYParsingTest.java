@@ -29,7 +29,12 @@ public class FLYParsingTest {
   public void loadModel() {
     try {
       StringConcatenation _builder = new StringConcatenation();
-      _builder.append("Hello Xtext!");
+      _builder.append("for in [0:10]{");
+      _builder.newLine();
+      _builder.append("\t");
+      _builder.append("println a");
+      _builder.newLine();
+      _builder.append("}");
       _builder.newLine();
       final Fly result = this.parseHelper.parse(_builder);
       Assertions.assertNotNull(result);
