@@ -1,0 +1,4 @@
+language: java
+script:
+    - cd compiler/org.xtext.FLY.parent
+    - mvn clean package
