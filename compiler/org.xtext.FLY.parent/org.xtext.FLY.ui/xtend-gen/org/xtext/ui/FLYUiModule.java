@@ -13,7 +13,7 @@ import org.xtext.ui.AbstractFLYUiModule;
 @FinalFieldsConstructor
 @SuppressWarnings("all")
 public class FLYUiModule extends AbstractFLYUiModule {
-  public FLYUiModule(final AbstractUIPlugin arg0) {
-    super(arg0);
+  public FLYUiModule(final AbstractUIPlugin plugin) {
+    super(plugin);
   }
 }

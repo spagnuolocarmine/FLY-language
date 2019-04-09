@@ -27,7 +27,7 @@
 		<module>org.xtext.FLY.feature</module>
 		<module>org.xtext.FLY.repository</module>
 		<module>org.xtext.FLY.tests</module>
-		<module>org.xtext.FLY.ui.tests</module>
+		<!-- <module>org.xtext.FLY.ui.tests</module> -->
 	</modules>
 		
 	<build>
