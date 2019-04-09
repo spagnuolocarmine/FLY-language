@@ -1,5 +1,5 @@
 # FLY a Domain Specific Language for scientific computing on the Multi Cloud 
-[![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)[![Build Status](https://travis-ci.org/spagnuolocarmine/FLY-language.svg?branch=master)](https://travis-ci.org/spagnuolocarmine/FLY-language)[![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)
 
 FLY is an open source Domain Specific Language for scientific computing on multi cloud exploiting FaaS.
 
