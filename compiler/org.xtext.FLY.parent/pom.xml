@@ -32,11 +32,12 @@
 		
 	<build>
 		<plugins>		
-            <plugin>
+           <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.7.5.201505241946</version>
-
+                <version>0.8.3</version>
+ 
+ 
                 <executions>
                     <!-- Prepares the property pointing to the JaCoCo runtime agent which 
                         is passed as VM argument when Maven the Surefire plugin is executed. -->
@@ -58,9 +59,9 @@
                         after unit tests have been run. -->
                     <execution>
                         <id>post-unit-test</id>
-                        <phase>test</phase>
+                        <phase>verify</phase>
                         <goals>
-                            <goal>report</goal>
+                            <goal>report-aggregate</goal>
                         </goals>
                         <configuration>
  
@@ -74,59 +75,17 @@
  
             </plugin>
             
-            <plugin>
-			    <groupId>org.apache.maven.plugins</groupId>
-			    <artifactId>maven-surefire-plugin</artifactId>
-			    <version>2.15</version>
-			    <configuration>
-			        <!-- Sets the VM argument line used when unit tests are run. -->
-			        <argLine>${surefireArgLine}</argLine>
-			        <!-- Skips unit tests if the value of skip.unit.tests property is true -->
-			        <skipTests>${skip.unit.tests}</skipTests>
-			        <!-- Excludes integration tests when unit tests are run. -->
-			        <excludes>
-			            <exclude>**/IT*.java</exclude>
-			        </excludes>
-			    </configuration>
-			</plugin>
- 
-			
-			<plugin>
-			    <groupId>org.apache.maven.plugins</groupId>
-			    <artifactId>maven-failsafe-plugin</artifactId>
-			    <version>2.15</version>
-			    <executions>
-			        <!--
-			            Ensures that both integration-test and verify goals of the Failsafe Maven
-			            plugin are executed.
-			        -->
-			        <execution>
-			            <id>integration-tests</id>
-			            <goals>
-			                <goal>integration-test</goal>
-			                <goal>verify</goal>
-			            </goals>
-			            <configuration>
-			                <!-- Sets the VM argument line used when integration tests are run. -->
-			                <argLine>${failsafeArgLine}</argLine>
-			                <!--
-			                    Skips integration tests if the value of skip.integration.tests property
-			                    is true
-			                -->
-			                <skipTests>${skip.integration.tests}</skipTests>
-			            </configuration>
-			        </execution>
-			    </executions>
-			</plugin>
-			
-			<plugin>
+           <plugin>
 			    <groupId>org.eluder.coveralls</groupId>
 			    <artifactId>coveralls-maven-plugin</artifactId>
 			    <version>4.3.0</version>
 			    <configuration>
-			        <repoToken>d3SV29jtSQiF83RmJZUBOWYoyUNmmowlf</repoToken>
+			    	<jacocoReports>
+            			<jacocoReport>${project.basedir}/org.xtext.FLY.tests/target/site/jacoco-ut/jacoco.xml</jacocoReport>
+        			</jacocoReports>
 			    </configuration>
 			</plugin>
+			
 			<plugin>
 				<groupId>org.eclipse.tycho</groupId>
 				<artifactId>tycho-maven-plugin</artifactId>
@@ -223,8 +182,10 @@
 						</execution>
 					</executions>
 					<configuration>
+						<xtendAsPrimaryDebugSource>true</xtendAsPrimaryDebugSource>
 						<outputDirectory>${basedir}/xtend-gen</outputDirectory>
-						<testOutputDirectory>${basedir}/xtend-gen</testOutputDirectory>
+						<testOutputDirectory>${basedir}/xtend-gen/test</testOutputDirectory>
+						 <writeTraceFiles>true</writeTraceFiles>
 					</configuration>
 				</plugin>
 				<plugin>

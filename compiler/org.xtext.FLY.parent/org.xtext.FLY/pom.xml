@@ -11,6 +11,17 @@
 
 	<build>
 		<plugins>
+			  <plugin>
+			    <groupId>org.eluder.coveralls</groupId>
+			    <artifactId>coveralls-maven-plugin</artifactId>
+			    <version>4.3.0</version>
+			    <configuration>
+			    	<jacocoReports>
+            			<jacocoReport>${project.basedir}/target/site/jacoco-aggregate/jacoco.xml</jacocoReport>
+        			</jacocoReports>
+			        <repoToken>d3SV29jtSQiF83RmJZUBOWYoyUNmmowlf</repoToken>
+			    </configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>exec-maven-plugin</artifactId>

@@ -29,7 +29,7 @@ public class FLYParsingTest {
   public void loadModel() {
     try {
       StringConcatenation _builder = new StringConcatenation();
-      _builder.append("for in [0:10]{");
+      _builder.append("for a in [0:10]{");
       _builder.newLine();
       _builder.append("\t");
       _builder.append("println a");

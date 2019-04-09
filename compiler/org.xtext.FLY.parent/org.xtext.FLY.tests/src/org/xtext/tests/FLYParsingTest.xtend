@@ -24,7 +24,7 @@ class FLYParsingTest {
 	@Test
 	def void loadModel() {
 		val result = parseHelper.parse('''
-			for in [0:10]{
+			for a in [0:10]{
 				println a
 			}
 		''')
