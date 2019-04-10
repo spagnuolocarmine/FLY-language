@@ -9,7 +9,7 @@ local.properties
 .settings/
 .loadpath
 .recommenders
-
+ 
 # External tool builders
 .externalToolBuilders/
 
@@ -21,49 +21,55 @@ local.properties
 
 # CDT-specific (C/C++ Development Tooling)
 .cproject
-
+ 
 # CDT- autotools
 .autotools
-
+ 
 # Java annotation processor (APT)
-.factorypath
-
+.actorypath
+ 
 # PDT-specific (PHP Development Tools)
 .buildpath
-
+ 
 # sbteclipse plugin
 .target
-
+ 
 # Tern plugin
 .tern-project
 
-# TeXlipse plugin
-.texlipse
+# Compiled class file
+*.class
 
-# STS (Spring Tool Suite)
-.springBeans
+# Log file
+*.log
 
-# Code Recommenders
-.recommenders/
+# BlueJ files
+*.ctxt
 
-# Annotation Processing
-.apt_generated/
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
 
-# Scala IDE specific (Scala & Java development for Eclipse)
-.cache-main
-.scala_dependencies
-.worksheet
+# Package Files #
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
 
-target/
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+/.metadata/
+
+# Generated files
 .project
-.classpath
-.settings/
-.svn/
-bin/
-out/
-.DS_Store
-/bootstrap
-/dependencies.xml
-.java-version
-
-
+.settings
+bin
+build
+target
+src-gen
+emf-gen
+generated
+xtext-gen
+xtend-gen
+plugin.xml_gen
