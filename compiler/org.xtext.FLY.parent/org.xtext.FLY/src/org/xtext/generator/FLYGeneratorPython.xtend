@@ -79,7 +79,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			memory = (environment.right as DeclarationObject).features.get(6).value_t
 			time = (environment.right as DeclarationObject).features.get(7).value_t					
 		} else {
-			env = "local"
+			env = "smp"
 			language = (environment.right as DeclarationObject).features.get(2).value_s
 			nthread = (environment.right as DeclarationObject).features.get(1).value_t
 		}
@@ -104,11 +104,14 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.toList
 		saveToRequirements(allReqs, fsa)
 		println(root.name)
-		fsa.generateFile(root.name + "_deploy.sh", input.compileScript(root.name, false))
-		
-		if (isLocal) {
+				if (isLocal) {
 			fsa.generateFile(root.name + ".py", input.compilePython(root.name, true))	
-		} 
+		} else {
+			fsa.generateFile(root.name + "_deploy.sh", input.compileScript(root.name, false))
+		}
+
+		
+
 		
 	}
 	
@@ -367,10 +370,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 			s += '''
 				«exp.target».sort_values(by=['«exp.taget»'], ascending=«isAscending»)
 			'''
-		} else if (exp instanceof NativeExpression) {
-			s+='''
-				«generateJsNativeExpression(exp)»
-			'''
+//		} else if (exp instanceof NativeExpression) {
+//			s+='''
+//				«generateJsNativeExpression(exp)»
+//			'''
 		} else if (exp instanceof FunctionReturn) {
 			val fr = (exp as FunctionReturn)
 			s += '''return «generatePyArithmeticExpression(fr.expression, scope, local)»'''
@@ -386,27 +389,27 @@ class FLYGeneratorPython extends AbstractGenerator {
 		return s
 	}
 	
-	def generateJsNativeExpression(NativeExpression expression) { 
-		var i=0;
-		var lines = expression.code.split("\n");
-		var num_tabs = 0 
-		while(lines.get(1).charAt(i).equals(lines.get(1).charAt(0))){
-			num_tabs++; 
-			i++;
-		}
-		i=0
-		var ret = new StringBuilder()
-		for (i=1; i< lines.length-1;i++){
-			println(lines.get(i))
-			if(lines.get(i).length>=num_tabs){
-				var string = lines.get(i).substring(num_tabs).replaceAll("\"","'")
-				ret.append('''«string»''')
-				ret.append("\n")
-			}
-			
-		}
-		return ret.toString
-	}
+//	def generateJsNativeExpression(NativeExpression expression) { 
+//		var i=0;
+//		var lines = expression.code.split("\n");
+//		var num_tabs = 0 
+//		while(lines.get(1).charAt(i).equals(lines.get(1).charAt(0))){
+//			num_tabs++; 
+//			i++;
+//		}
+//		i=0
+//		var ret = new StringBuilder()
+//		for (i=1; i< lines.length-1;i++){
+//			println(lines.get(i))
+//			if(lines.get(i).length>=num_tabs){
+//				var string = lines.get(i).substring(num_tabs).replaceAll("\"","'")
+//				ret.append('''«string»''')
+//				ret.append("\n")
+//			}
+//			
+//		}
+//		return ret.toString
+//	}
 	
 
 	def generatePyAssignmentExpression(Assignment assignment, String scope, boolean local) {
@@ -465,7 +468,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«ENDIF»
 					'''
 				} else if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
-					get(0).value_s.equals("local")) {
+					get(0).value_s.equals("smp")) {
 					
 					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as ChannelDeclaration
 					return '''

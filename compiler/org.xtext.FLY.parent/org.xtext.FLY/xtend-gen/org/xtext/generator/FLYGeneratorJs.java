@@ -82,21 +82,32 @@ public class FLYGeneratorJs extends AbstractGenerator {
   
   private HashMap<String, HashMap<String, String>> typeSystem = null;
   
-  public void generateJS(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id) {
+  private boolean isLocal;
+  
+  public void generateJS(final Resource input, final IFileSystemAccess2 fsa, final IGeneratorContext context, final String name_file, final FunctionDefinition func, final EnvironmentDeclaration environment, final HashMap<String, HashMap<String, String>> scoping, final long id, final boolean local) {
     this.name = name_file;
     this.root = func;
     this.typeSystem = scoping;
     this.id_execution = Long.valueOf(id);
-    EObject _right = environment.getRight();
-    this.env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
-    EObject _right_1 = environment.getRight();
-    this.language = ((DeclarationObject) _right_1).getFeatures().get(4).getValue_s();
-    EObject _right_2 = environment.getRight();
-    this.nthread = ((DeclarationObject) _right_2).getFeatures().get(5).getValue_t();
-    EObject _right_3 = environment.getRight();
-    this.memory = ((DeclarationObject) _right_3).getFeatures().get(6).getValue_t();
-    EObject _right_4 = environment.getRight();
-    this.time = ((DeclarationObject) _right_4).getFeatures().get(7).getValue_t();
+    if ((!local)) {
+      EObject _right = environment.getRight();
+      this.env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
+      EObject _right_1 = environment.getRight();
+      this.language = ((DeclarationObject) _right_1).getFeatures().get(4).getValue_s();
+      EObject _right_2 = environment.getRight();
+      this.nthread = ((DeclarationObject) _right_2).getFeatures().get(5).getValue_t();
+      EObject _right_3 = environment.getRight();
+      this.memory = ((DeclarationObject) _right_3).getFeatures().get(6).getValue_t();
+      EObject _right_4 = environment.getRight();
+      this.time = ((DeclarationObject) _right_4).getFeatures().get(7).getValue_t();
+    } else {
+      this.env = "smp";
+      EObject _right_5 = environment.getRight();
+      this.nthread = ((DeclarationObject) _right_5).getFeatures().get(1).getValue_t();
+      EObject _right_6 = environment.getRight();
+      this.language = ((DeclarationObject) _right_6).getFeatures().get(2).getValue_s();
+    }
+    this.isLocal = local;
     this.doGenerate(input, fsa, context);
   }
   
@@ -108,6 +119,32 @@ public class FLYGeneratorJs extends AbstractGenerator {
     String _name_1 = this.root.getName();
     String _plus_1 = (_name_1 + "_undeploy.sh");
     fsa.generateFile(_plus_1, this.compileUndeploy(input, this.root.getName()));
+    if (this.isLocal) {
+      String _name_2 = this.root.getName();
+      String _plus_2 = (_name_2 + ".js");
+      fsa.generateFile(_plus_2, this.compileJavaScript(input, this.root.getName(), true));
+    }
+  }
+  
+  public CharSequence compileJavaScript(final Resource resource, final String string, final boolean local) {
+    StringConcatenation _builder = new StringConcatenation();
+    CharSequence _generateLocalBodyJs = this.generateLocalBodyJs(this.root.getBody(), this.root.getParameters(), this.name, this.env, local);
+    _builder.append(_generateLocalBodyJs);
+    _builder.newLineIfNotEmpty();
+    return _builder;
+  }
+  
+  public CharSequence generateLocalBodyJs(final BlockExpression expression, final EList<Expression> list, final String string, final String string2, final boolean b) {
+    StringConcatenation _builder = new StringConcatenation();
+    _builder.append("var __dataframe = require(\"dataframe-js\").DataFrame;");
+    _builder.newLine();
+    _builder.append("export.main = async => {");
+    _builder.newLine();
+    _builder.append("\t");
+    _builder.newLine();
+    _builder.append("}");
+    _builder.newLine();
+    return _builder;
   }
   
   public CharSequence compileJS(final Resource resource, final FunctionDefinition func, final String env) {

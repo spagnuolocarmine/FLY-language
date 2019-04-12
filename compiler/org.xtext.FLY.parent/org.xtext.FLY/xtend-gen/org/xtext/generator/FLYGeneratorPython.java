@@ -111,7 +111,7 @@ public class FLYGeneratorPython extends AbstractGenerator {
       EObject _right_4 = environment.getRight();
       this.time = ((DeclarationObject) _right_4).getFeatures().get(7).getValue_t();
     } else {
-      this.env = "local";
+      this.env = "smp";
       EObject _right_5 = environment.getRight();
       this.language = ((DeclarationObject) _right_5).getFeatures().get(2).getValue_s();
       EObject _right_6 = environment.getRight();
@@ -151,13 +151,14 @@ public class FLYGeneratorPython extends AbstractGenerator {
     final List<String> _converted_allReqs = (List<String>)allReqs;
     this.saveToRequirements(((String[])Conversions.unwrapArray(_converted_allReqs, String.class)), fsa);
     InputOutput.<String>println(this.root.getName());
-    String _name = this.root.getName();
-    String _plus = (_name + "_deploy.sh");
-    fsa.generateFile(_plus, this.compileScript(input, this.root.getName(), false));
     if (this.isLocal) {
+      String _name = this.root.getName();
+      String _plus = (_name + ".py");
+      fsa.generateFile(_plus, this.compilePython(input, this.root.getName(), true));
+    } else {
       String _name_1 = this.root.getName();
-      String _plus_1 = (_name_1 + ".py");
-      fsa.generateFile(_plus_1, this.compilePython(input, this.root.getName(), true));
+      String _plus_1 = (_name_1 + "_deploy.sh");
+      fsa.generateFile(_plus_1, this.compileScript(input, this.root.getName(), false));
     }
   }
   
@@ -769,42 +770,33 @@ public class FLYGeneratorPython extends AbstractGenerator {
                           _builder_17.newLineIfNotEmpty();
                           s = (_s_15 + _builder_17);
                         } else {
-                          if ((exp instanceof NativeExpression)) {
+                          if ((exp instanceof FunctionReturn)) {
+                            final FunctionReturn fr = ((FunctionReturn) exp);
                             String _s_16 = s;
                             StringConcatenation _builder_18 = new StringConcatenation();
-                            String _generateJsNativeExpression = this.generateJsNativeExpression(((NativeExpression)exp));
-                            _builder_18.append(_generateJsNativeExpression);
-                            _builder_18.newLineIfNotEmpty();
+                            _builder_18.append("return ");
+                            Object _generatePyArithmeticExpression_7 = this.generatePyArithmeticExpression(fr.getExpression(), scope, local);
+                            _builder_18.append(_generatePyArithmeticExpression_7);
                             s = (_s_16 + _builder_18);
                           } else {
-                            if ((exp instanceof FunctionReturn)) {
-                              final FunctionReturn fr = ((FunctionReturn) exp);
-                              String _s_17 = s;
-                              StringConcatenation _builder_19 = new StringConcatenation();
-                              _builder_19.append("return ");
-                              Object _generatePyArithmeticExpression_7 = this.generatePyArithmeticExpression(fr.getExpression(), scope, local);
-                              _builder_19.append(_generatePyArithmeticExpression_7);
-                              s = (_s_17 + _builder_19);
-                            } else {
-                              if ((exp instanceof PostfixOperation)) {
-                                String postfixOp = "";
-                                String _feature = ((PostfixOperation)exp).getFeature();
-                                if (_feature != null) {
-                                  switch (_feature) {
-                                    case "++":
-                                      postfixOp = "+=1";
-                                      break;
-                                    case "--":
-                                      postfixOp = "-=1";
-                                      break;
-                                  }
+                            if ((exp instanceof PostfixOperation)) {
+                              String postfixOp = "";
+                              String _feature = ((PostfixOperation)exp).getFeature();
+                              if (_feature != null) {
+                                switch (_feature) {
+                                  case "++":
+                                    postfixOp = "+=1";
+                                    break;
+                                  case "--":
+                                    postfixOp = "-=1";
+                                    break;
                                 }
-                                StringConcatenation _builder_20 = new StringConcatenation();
-                                Object _generatePyArithmeticExpression_8 = this.generatePyArithmeticExpression(((PostfixOperation)exp).getVariable(), scope, local);
-                                _builder_20.append(_generatePyArithmeticExpression_8);
-                                _builder_20.append(postfixOp);
-                                return _builder_20.toString();
                               }
+                              StringConcatenation _builder_19 = new StringConcatenation();
+                              Object _generatePyArithmeticExpression_8 = this.generatePyArithmeticExpression(((PostfixOperation)exp).getVariable(), scope, local);
+                              _builder_19.append(_generatePyArithmeticExpression_8);
+                              _builder_19.append(postfixOp);
+                              return _builder_19.toString();
                             }
                           }
                         }
@@ -819,35 +811,6 @@ public class FLYGeneratorPython extends AbstractGenerator {
       }
     }
     return s;
-  }
-  
-  public String generateJsNativeExpression(final NativeExpression expression) {
-    int i = 0;
-    String[] lines = expression.getCode().split("\n");
-    int num_tabs = 0;
-    while (Character.valueOf(lines[1].charAt(i)).equals(Character.valueOf(lines[1].charAt(0)))) {
-      {
-        num_tabs++;
-        i++;
-      }
-    }
-    i = 0;
-    StringBuilder ret = new StringBuilder();
-    for (i = 1; (i < (lines.length - 1)); i++) {
-      {
-        InputOutput.<String>println(lines[i]);
-        int _length = lines[i].length();
-        boolean _greaterEqualsThan = (_length >= num_tabs);
-        if (_greaterEqualsThan) {
-          String string = lines[i].substring(num_tabs).replaceAll("\"", "\'");
-          StringConcatenation _builder = new StringConcatenation();
-          _builder.append(string);
-          ret.append(_builder);
-          ret.append("\n");
-        }
-      }
-    }
-    return ret.toString();
   }
   
   public String generatePyAssignmentExpression(final Assignment assignment, final String scope, final boolean local) {
@@ -956,7 +919,7 @@ public class FLYGeneratorPython extends AbstractGenerator {
           } else {
             ArithmeticExpression _value_9 = assignment.getValue();
             EObject _right_2 = ((ChannelReceive) _value_9).getTarget().getEnvironment().getRight();
-            boolean _equals_6 = ((DeclarationObject) _right_2).getFeatures().get(0).getValue_s().equals("local");
+            boolean _equals_6 = ((DeclarationObject) _right_2).getFeatures().get(0).getValue_s().equals("smp");
             if (_equals_6) {
               ArithmeticExpression _value_10 = assignment.getValue();
               ArithmeticExpression _target_5 = ((CastExpression) _value_10).getTarget();

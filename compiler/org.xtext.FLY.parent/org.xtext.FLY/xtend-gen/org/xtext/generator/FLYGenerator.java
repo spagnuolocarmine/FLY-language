@@ -120,21 +120,28 @@ public class FLYGenerator extends AbstractGenerator {
         EObject _right = element.getEnvironment().getRight();
         DeclarationFeature _get = ((DeclarationObject) _right).getFeatures().get(0);
         String type_env = ((DeclarationFeature) _get).getValue_s();
-        if ((type_env.equals("local") && (((Object[])Conversions.unwrapArray(((DeclarationObject) element.getEnvironment().getRight()).getFeatures(), Object.class)).length == 3))) {
-          this.pyGen.generatePython(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution, true);
-        }
-        boolean _notEquals = (!Objects.equal(type_env, "local"));
-        if (_notEquals) {
+        if ((type_env.equals("smp") && (((Object[])Conversions.unwrapArray(((DeclarationObject) element.getEnvironment().getRight()).getFeatures(), Object.class)).length == 3))) {
           EObject _right_1 = element.getEnvironment().getRight();
-          DeclarationFeature _get_1 = ((DeclarationObject) _right_1).getFeatures().get(4);
-          String language = ((DeclarationFeature) _get_1).getValue_s();
-          boolean _contains = language.contains("python");
+          DeclarationFeature _get_1 = ((DeclarationObject) _right_1).getFeatures().get(2);
+          boolean _contains = ((DeclarationFeature) _get_1).getValue_s().contains("python");
           if (_contains) {
+            this.pyGen.generatePython(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution, true);
+          } else {
+            this.jsGen.generateJS(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution, true);
+          }
+        }
+        boolean _notEquals = (!Objects.equal(type_env, "smp"));
+        if (_notEquals) {
+          EObject _right_2 = element.getEnvironment().getRight();
+          DeclarationFeature _get_2 = ((DeclarationObject) _right_2).getFeatures().get(4);
+          String language = ((DeclarationFeature) _get_2).getValue_s();
+          boolean _contains_1 = language.contains("python");
+          if (_contains_1) {
             this.pyGen.generatePython(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution, false);
           } else {
-            boolean _contains_1 = language.contains("nodejs");
-            if (_contains_1) {
-              this.jsGen.generateJS(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution);
+            boolean _contains_2 = language.contains("nodejs");
+            if (_contains_2) {
+              this.jsGen.generateJS(resource, fsa, context, this.name, element.getTarget(), element.getEnvironment(), this.typeSystem, this.id_execution, false);
             }
           }
         }
@@ -420,7 +427,7 @@ public class FLYGenerator extends AbstractGenerator {
     {
       final Function1<EnvironmentDeclaration, Boolean> _function_1 = (EnvironmentDeclaration it) -> {
         EObject _right = it.getRight();
-        boolean _equals = ((DeclarationObject) _right).getFeatures().get(0).getValue_s().equals("local");
+        boolean _equals = ((DeclarationObject) _right).getFeatures().get(0).getValue_s().equals("smp");
         return Boolean.valueOf((!_equals));
       };
       Iterable<EnvironmentDeclaration> _filter_2 = IterableExtensions.<EnvironmentDeclaration>filter(Iterables.<EnvironmentDeclaration>filter(IteratorExtensions.<EObject>toIterable(resource.getAllContents()), EnvironmentDeclaration.class), _function_1);
@@ -429,7 +436,7 @@ public class FLYGenerator extends AbstractGenerator {
         _builder.append("ExecutorService __thread_pool_");
         String _name = element_2.getName();
         _builder.append(_name, "\t\t");
-        _builder.append(" = Executors.newFixedThreadPool((int) __fly_environment.get(\"local\").get(\"nthread\"));");
+        _builder.append(" = Executors.newFixedThreadPool((int) __fly_environment.get(\"smp\").get(\"nthread\"));");
         _builder.newLineIfNotEmpty();
       }
     }
@@ -455,7 +462,7 @@ public class FLYGenerator extends AbstractGenerator {
     {
       final Function1<FlyFunctionCall, Boolean> _function_3 = (FlyFunctionCall it) -> {
         EObject _right = it.getEnvironment().getRight();
-        boolean _equals = ((DeclarationObject) _right).getFeatures().get(0).equals("local");
+        boolean _equals = ((DeclarationObject) _right).getFeatures().get(0).getValue_s().equals("smp");
         return Boolean.valueOf((!_equals));
       };
       Iterable<FlyFunctionCall> _filter_4 = IterableExtensions.<FlyFunctionCall>filter(Iterables.<FlyFunctionCall>filter(IteratorExtensions.<EObject>toIterable(resource.getAllContents()), FlyFunctionCall.class), _function_3);
@@ -489,7 +496,7 @@ public class FLYGenerator extends AbstractGenerator {
     {
       final Function1<FlyFunctionCall, Boolean> _function_4 = (FlyFunctionCall it) -> {
         EObject _right = it.getEnvironment().getRight();
-        boolean _equals_1 = ((DeclarationObject) _right).getFeatures().get(0).equals("local");
+        boolean _equals_1 = ((DeclarationObject) _right).getFeatures().get(0).equals("smp");
         return Boolean.valueOf((!_equals_1));
       };
       Iterable<FlyFunctionCall> _filter_6 = IterableExtensions.<FlyFunctionCall>filter(Iterables.<FlyFunctionCall>filter(IteratorExtensions.<EObject>toIterable(resource.getAllContents()), FlyFunctionCall.class), _function_4);
@@ -505,7 +512,7 @@ public class FLYGenerator extends AbstractGenerator {
     {
       final Function1<EnvironmentDeclaration, Boolean> _function_5 = (EnvironmentDeclaration it) -> {
         EObject _right = it.getRight();
-        boolean _equals_1 = ((DeclarationObject) _right).getFeatures().get(0).getValue_s().equals("local");
+        boolean _equals_1 = ((DeclarationObject) _right).getFeatures().get(0).getValue_s().equals("smp");
         return Boolean.valueOf((!_equals_1));
       };
       Iterable<EnvironmentDeclaration> _filter_7 = IterableExtensions.<EnvironmentDeclaration>filter(Iterables.<EnvironmentDeclaration>filter(IteratorExtensions.<EObject>toIterable(resource.getAllContents()), EnvironmentDeclaration.class), _function_5);
@@ -1505,7 +1512,7 @@ public class FLYGenerator extends AbstractGenerator {
                   }
                 } else {
                   if (((dec.getRight() instanceof CastExpression) && (((CastExpression) dec.getRight()).getTarget() instanceof ChannelReceive))) {
-                    if ((((DeclarationObject) ((ChannelReceive) ((CastExpression) dec.getRight()).getTarget()).getTarget().getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("aws") || (((DeclarationObject) ((ChannelReceive) ((CastExpression) dec.getRight()).getTarget()).getTarget().getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("local") && 
+                    if ((((DeclarationObject) ((ChannelReceive) ((CastExpression) dec.getRight()).getTarget()).getTarget().getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("aws") || (((DeclarationObject) ((ChannelReceive) ((CastExpression) dec.getRight()).getTarget()).getTarget().getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("smp") && 
                       (((Object[])Conversions.unwrapArray(((DeclarationObject) ((ChannelReceive) ((CastExpression) dec.getRight()).getTarget()).getTarget().getEnvironment().getRight()).getFeatures(), Object.class)).length == 3)))) {
                       EObject _right_38 = dec.getRight();
                       boolean _equals_8 = ((CastExpression) _right_38).getType().equals("Object");
@@ -1618,7 +1625,7 @@ public class FLYGenerator extends AbstractGenerator {
                       EObject _right_52 = dec.getRight();
                       ArithmeticExpression _target_10 = ((CastExpression) _right_52).getTarget();
                       EObject _right_53 = ((ChannelReceive) _target_10).getTarget().getEnvironment().getRight();
-                      boolean _equals_12 = ((DeclarationObject) _right_53).getFeatures().get(0).getValue_s().equals("local");
+                      boolean _equals_12 = ((DeclarationObject) _right_53).getFeatures().get(0).getValue_s().equals("smp");
                       if (_equals_12) {
                         EObject _right_54 = dec.getRight();
                         this.typeSystem.get(scope).put(dec.getName(), this.valuateArithmeticExpression(((CastExpression) _right_54), scope));
@@ -2113,7 +2120,7 @@ public class FLYGenerator extends AbstractGenerator {
   public String generateEnvironmentDeclaration(final EnvironmentDeclaration dec) {
     EObject _right = dec.getRight();
     String env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
-    boolean _equals = env.equals("local");
+    boolean _equals = env.equals("smp");
     if (_equals) {
       StringConcatenation _builder = new StringConcatenation();
       _builder.append("static ExecutorService __thread_pool_");
@@ -2228,7 +2235,7 @@ public class FLYGenerator extends AbstractGenerator {
   public String setEnvironmentDeclarationInfo(final EnvironmentDeclaration dec) {
     EObject _right = dec.getRight();
     String env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
-    boolean _equals = env.equals("local");
+    boolean _equals = env.equals("smp");
     if (_equals) {
       StringConcatenation _builder = new StringConcatenation();
       _builder.append("__fly_environment.put(\"");
@@ -2319,7 +2326,7 @@ public class FLYGenerator extends AbstractGenerator {
     _builder.append(" = new LinkedTransferQueue<Object>();");
     _builder.newLineIfNotEmpty();
     {
-      boolean _equals = env.equals("local");
+      boolean _equals = env.equals("smp");
       boolean _not = (!_equals);
       if (_not) {
         _builder.append("static Boolean __wait_on_");
@@ -2347,7 +2354,7 @@ public class FLYGenerator extends AbstractGenerator {
   public String generateChannelDeclarationForLanguage(final ChannelDeclaration declaration) {
     EObject _right = declaration.getEnvironment().getRight();
     String env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
-    if ((env.equals("local") && (((Object[])Conversions.unwrapArray(((DeclarationObject) declaration.getEnvironment().getRight()).getFeatures(), Object.class)).length == 3))) {
+    if ((env.equals("smp") && (((Object[])Conversions.unwrapArray(((DeclarationObject) declaration.getEnvironment().getRight()).getFeatures(), Object.class)).length == 3))) {
       StringConcatenation _builder = new StringConcatenation();
       _builder.append("__socket_server_");
       String _name = declaration.getName();
@@ -2420,7 +2427,7 @@ public class FLYGenerator extends AbstractGenerator {
     String env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
     final Function1<EnvironmentDeclaration, Boolean> _function = (EnvironmentDeclaration it) -> {
       EObject _right_1 = it.getRight();
-      return Boolean.valueOf(((DeclarationObject) _right_1).getFeatures().get(0).getValue_s().equals("local"));
+      return Boolean.valueOf(((DeclarationObject) _right_1).getFeatures().get(0).getValue_s().equals("smp"));
     };
     EnvironmentDeclaration _get = ((EnvironmentDeclaration[])Conversions.unwrapArray(IterableExtensions.<EnvironmentDeclaration>filter(Iterables.<EnvironmentDeclaration>filter(IteratorExtensions.<EObject>toIterable(this.res.getAllContents()), EnvironmentDeclaration.class), _function), EnvironmentDeclaration.class))[0];
     String local = ((EnvironmentDeclaration) _get).getName();
@@ -3263,7 +3270,7 @@ public class FLYGenerator extends AbstractGenerator {
           {
             VariableDeclaration _target_3 = expression.getTarget();
             EObject _right_3 = ((ChannelDeclaration) _target_3).getEnvironment().getRight();
-            boolean _equals_6 = ((DeclarationObject) _right_3).getFeatures().get(0).getValue_s().equals("local");
+            boolean _equals_6 = ((DeclarationObject) _right_3).getFeatures().get(0).getValue_s().equals("smp");
             boolean _not = (!_equals_6);
             if (_not) {
               _builder_2.append("__wait_on_");
@@ -3272,7 +3279,7 @@ public class FLYGenerator extends AbstractGenerator {
               _builder_2.append(" = false;");
               _builder_2.newLineIfNotEmpty();
             } else {
-              if ((((DeclarationObject) ((ChannelDeclaration) expression.getTarget()).getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("local") && 
+              if ((((DeclarationObject) ((ChannelDeclaration) expression.getTarget()).getEnvironment().getRight()).getFeatures().get(0).getValue_s().equals("smp") && 
                 (((Object[])Conversions.unwrapArray(((DeclarationObject) ((ChannelDeclaration) expression.getTarget()).getEnvironment().getRight()).getFeatures(), Object.class)).length == 3))) {
                 _builder_2.append("__socket_server_");
                 String _name_7 = expression.getTarget().getName();
@@ -3373,7 +3380,7 @@ public class FLYGenerator extends AbstractGenerator {
   public String generateFlyFunctionCall(final FlyFunctionCall call, final String scope) {
     EObject _right = call.getEnvironment().getRight();
     String env = ((DeclarationObject) _right).getFeatures().get(0).getValue_s();
-    boolean _equals = env.equals("local");
+    boolean _equals = env.equals("smp");
     if (_equals) {
       return this.generateLocalFlyFunction(call, scope);
     } else {
@@ -5234,7 +5241,7 @@ public class FLYGenerator extends AbstractGenerator {
     EObject _right = receive.getTarget().getEnvironment().getRight();
     DeclarationFeature _get = ((DeclarationObject) _right).getFeatures().get(0);
     String env = ((DeclarationFeature) _get).getValue_s();
-    boolean _equals = env.equals("local");
+    boolean _equals = env.equals("smp");
     if (_equals) {
       StringConcatenation _builder = new StringConcatenation();
       ChannelDeclaration _target = receive.getTarget();
@@ -5260,7 +5267,7 @@ public class FLYGenerator extends AbstractGenerator {
     EObject _right = send.getTarget().getEnvironment().getRight();
     DeclarationFeature _get = ((DeclarationObject) _right).getFeatures().get(0);
     String env = ((DeclarationFeature) _get).getValue_s();
-    boolean _equals = env.equals("local");
+    boolean _equals = env.equals("smp");
     if (_equals) {
       StringConcatenation _builder = new StringConcatenation();
       ChannelDeclaration _target = send.getTarget();

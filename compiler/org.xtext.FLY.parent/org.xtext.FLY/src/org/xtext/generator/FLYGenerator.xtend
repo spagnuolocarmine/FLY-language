@@ -94,16 +94,20 @@ class FLYGenerator extends AbstractGenerator {
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
-			if(type_env.equals("local") && ((element.environment.right as DeclarationObject).features.length==3)){
-				pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
+			if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
+				if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
+					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
+				}else{
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
+				}	
 			}
-			if (type_env != "local") {
+			if (type_env != "smp") {
 				var language = ((element.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).
 				value_s;
 				if (language.contains("python")){
 					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false); 
 				}else if (language.contains("nodejs")) {
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution);
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false);
 				}
 			}
 		}
@@ -237,8 +241,8 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDIF»
 				
 				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("local")]»
-					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("local").get("nthread"));
+				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
+					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("smp").get("nthread"));
 				«ENDFOR»
 				
 				«FOR element: resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud]»
@@ -247,7 +251,7 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDFOR»
 				
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
-				.filter[!(environment.right as DeclarationObject).features.get(0).equals("local")]»
+				.filter[!(environment.right as DeclarationObject).features.get(0).value_s.equals("smp")]»
 					«deployFlyFunctionOnCloud(element)»
 				«ENDFOR»
 				
@@ -259,12 +263,12 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDFOR»
 
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
-				.filter[!(environment.right as DeclarationObject).features.get(0).equals("local")]»
+				.filter[!(environment.right as DeclarationObject).features.get(0).equals("smp")]»
 					«undeployFlyFunctionOnCloud(element)»
 				«ENDFOR»
 				
 				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("local")]»
+				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
 					__thread_pool_«element.name».shutdown();
 				«ENDFOR»
 						
@@ -621,7 +625,7 @@ class FLYGenerator extends AbstractGenerator {
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
 					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("aws") ||
-						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") &&
+						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
 							(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.length==3
 						)){
 						if((dec.right as CastExpression).type.equals("Object")){
@@ -648,7 +652,7 @@ class FLYGenerator extends AbstractGenerator {
 								String «dec.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
 							'''
 						}
-					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("local") ){ 
+					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") ){ 
 						typeSystem.get(scope).put(dec.name, valuateArithmeticExpression((dec.right as CastExpression),scope))
 						println( typeSystem.get(scope))
 						return '''
@@ -824,7 +828,7 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("local")){
+		if (env.equals("smp")){
 			return '''
 				static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
 			'''
@@ -862,7 +866,7 @@ class FLYGenerator extends AbstractGenerator {
 	
 	def setEnvironmentDeclarationInfo(EnvironmentDeclaration dec){
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("local")){
+		if (env.equals("smp")){
 			return '''
 				__fly_environment.put("«env»", new HashMap<String,Object>());
 				__fly_environment.get("«env»").put("nthread",«((dec.right as DeclarationObject).features.get(1)).value_t»);
@@ -890,7 +894,7 @@ class FLYGenerator extends AbstractGenerator {
 			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
 			return '''
 				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
-				«IF ! env.equals("local")»
+				«IF ! env.equals("smp")»
 					static Boolean __wait_on_«declaration.name» = true;
 				«ENDIF»
 				«IF (declaration.environment.right as DeclarationObject).features.length == 3 »
@@ -901,7 +905,7 @@ class FLYGenerator extends AbstractGenerator {
 	
 	def generateChannelDeclarationForLanguage(ChannelDeclaration declaration){
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		if(env.equals("local") && (declaration.environment.right as DeclarationObject).features.length==3){
+		if(env.equals("smp") && (declaration.environment.right as DeclarationObject).features.length==3){
 			return '''
 				__socket_server_«declaration.name»= new ServerSocket(9090);
 				__thread_pool_«declaration.environment.name».submit(new Runnable() {
@@ -929,7 +933,7 @@ class FLYGenerator extends AbstractGenerator {
 	def generateChanelDeclarationForCloud(ChannelDeclaration declaration) { // create a queue on AWS
 		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
 		var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
-		.filter[(right as DeclarationObject).features.get(0).value_s.equals("local")].get(0) as EnvironmentDeclaration).name
+		.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
 		if (env.equals("aws")) {
 			return '''
 				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
@@ -1202,9 +1206,9 @@ class FLYGenerator extends AbstractGenerator {
 			if(expression.feature.equals("close")){
 				println(((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0))
 				return '''
-					«IF !((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("local") »
+					«IF !((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
 						__wait_on_«expression.target.name» = false;
-					«ELSEIF ((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("local") &&
+					«ELSEIF ((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
 					((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.length==3»
 						__socket_server_«expression.target.name».close();
 					«ENDIF»
@@ -1259,7 +1263,7 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateFlyFunctionCall(FlyFunctionCall call, String scope) {
 		var env = ((call.environment.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("local")) {
+		if (env.equals("smp")) {
 			return generateLocalFlyFunction(call, scope)
 		} else if (env.equals("aws")) {
 			return generateAWSFlyFunctionCall(call, scope)
@@ -1727,7 +1731,7 @@ class FLYGenerator extends AbstractGenerator {
 	def generateChannelReceive(ChannelReceive receive, String scope) {
 		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
 			value_s
-		if (env.equals("local")) {
+		if (env.equals("smp")) {
 			return '''«(receive.target as ChannelDeclaration).name».take()'''
 		} else if (env.equals("aws")) {
 			return '''
@@ -1738,7 +1742,7 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateChannelSend(ChannelSend send, String scope) {
 		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
-		if (env.equals("local")) {
+		if (env.equals("smp")) {
 			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''

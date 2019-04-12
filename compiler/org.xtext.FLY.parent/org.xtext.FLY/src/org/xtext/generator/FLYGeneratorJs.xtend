@@ -48,6 +48,7 @@ import org.xtext.fLY.ConstantDeclaration
 import org.xtext.fLY.LocalFunctionCall
 import org.xtext.fLY.ArrayInit
 import org.xtext.fLY.ArrayValue
+import org.eclipse.emf.common.util.EList
 
 class FLYGeneratorJs extends AbstractGenerator {
 	
@@ -60,17 +61,26 @@ class FLYGeneratorJs extends AbstractGenerator {
 	FunctionDefinition root = null
 	var id_execution = null
 	HashMap<String, HashMap<String, String>> typeSystem = null
+	boolean isLocal;
 	
-	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id){
-		name=name_file
-		root = func
-		typeSystem=scoping
-		id_execution = id
-		env = (environment.right as DeclarationObject).features.get(0).value_s
-		language = (environment.right as DeclarationObject).features.get(4).value_s
-		nthread = (environment.right as DeclarationObject).features.get(5).value_t
-		memory = (environment.right as DeclarationObject).features.get(6).value_t
-		time = (environment.right as DeclarationObject).features.get(7).value_t
+	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local){
+		this.name=name_file
+		this.root = func
+		this.typeSystem=scoping
+		this.id_execution = id
+		if(!local){
+			this.env = (environment.right as DeclarationObject).features.get(0).value_s
+			this.language = (environment.right as DeclarationObject).features.get(4).value_s
+			this.nthread = (environment.right as DeclarationObject).features.get(5).value_t
+			this.memory = (environment.right as DeclarationObject).features.get(6).value_t
+			this.time = (environment.right as DeclarationObject).features.get(7).value_t
+		}else{
+			this.env="smp"
+			this.nthread = (environment.right as DeclarationObject).features.get(1).value_t
+			this.language = (environment.right as DeclarationObject).features.get(2).value_s
+		}
+		
+		this.isLocal = local
 		doGenerate(input,fsa,context) 
 	}
 	
@@ -78,9 +88,26 @@ class FLYGeneratorJs extends AbstractGenerator {
 		//fsa.generateFile(name + ".js", input.compileJS(root, env));
 		fsa.generateFile(root.name+"_deploy.sh",input.compileDeploy(root.name));
 		fsa.generateFile(root.name+"_undeploy.sh",input.compileUndeploy(root.name));
+		if (this.isLocal) {
+			fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
+		} 
 	}
 	
-		def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
+	def CharSequence compileJavaScript(Resource resource, String string, boolean local)
+	'''
+		«generateLocalBodyJs(root.body,root.parameters,name,env, local)»
+	'''
+	
+	def generateLocalBodyJs(BlockExpression expression, EList<Expression> list, String string, String string2, boolean b) {
+		'''
+			var __dataframe = require("dataframe-js").DataFrame;
+			export.main = async => {
+				
+			}
+		'''
+	}
+	
+	def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
 		«generateBodyJs(resource,func.body,func.parameters,func.name,env)»
 	'''
 
@@ -976,6 +1003,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		rm policyDocument.json
 	
 	'''
+	
 	def CharSequence compileUndeploy(Resource resource, String name)'''
 		#!/bin/bash
 			
