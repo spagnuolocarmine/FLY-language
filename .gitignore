@@ -22,15 +22,4 @@
 hs_err_pid*
 /.metadata/
 
-# Generated files
-.project
-.settings
-bin
-build
-target
-src-gen
-emf-gen
-generated
-xtext-gen
-xtend-gen
-plugin.xml_gen
+
