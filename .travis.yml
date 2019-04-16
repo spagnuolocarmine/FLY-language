@@ -1,0 +1,5 @@
+language: java
+install: true
+script:
+  - cd compiler/org.xtext.FLY.parent
+  - mvn verify jacoco:report-aggregate coveralls:report

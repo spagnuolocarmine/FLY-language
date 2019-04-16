@@ -1,0 +1,30 @@
+Manifest-Version: 1.0
+Automatic-Module-Name: org.xtext.FLY
+Bundle-ManifestVersion: 2
+Bundle-Name: org.xtext.FLY
+Bundle-Vendor: My Company
+Bundle-Version: 1.0.0.qualifier
+Bundle-SymbolicName: org.xtext.FLY; singleton:=true
+Bundle-ActivationPolicy: lazy
+Require-Bundle: org.eclipse.xtext,
+ org.eclipse.xtext.xbase,
+ org.eclipse.equinox.common;bundle-version="3.5.0",
+ org.eclipse.emf.ecore,
+ org.eclipse.xtext.xbase.lib;bundle-version="2.14.0",
+ org.eclipse.xtext.util,
+ org.eclipse.emf.common,
+ org.eclipse.xtend.lib;bundle-version="2.14.0",
+ org.antlr.runtime;bundle-version="[3.2.0,3.2.1)"
+Bundle-RequiredExecutionEnvironment: JavaSE-1.8
+Export-Package: org.xtext.fLY,
+ org.xtext.parser.antlr.internal,
+ org.xtext.generator,
+ org.xtext.fLY.util,
+ org.xtext.validation,
+ org.xtext.serializer,
+ org.xtext.parser.antlr,
+ org.xtext.services,
+ org.xtext.scoping,
+ org.xtext.fLY.impl,
+ org.xtext
+Import-Package: org.apache.log4j
