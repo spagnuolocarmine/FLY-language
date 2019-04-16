@@ -27,10 +27,65 @@
 		<module>org.xtext.FLY.feature</module>
 		<module>org.xtext.FLY.repository</module>
 		<module>org.xtext.FLY.tests</module>
-		<module>org.xtext.FLY.ui.tests</module>
+		<!-- <module>org.xtext.FLY.ui.tests</module> -->
 	</modules>
+		
 	<build>
-		<plugins>
+		<plugins>		
+           <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.3</version>
+ 
+ 
+                <executions>
+                    <!-- Prepares the property pointing to the JaCoCo runtime agent which 
+                        is passed as VM argument when Maven the Surefire plugin is executed. -->
+                    <execution>
+                        <id>pre-unit-test</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Sets the path to the file which contains the execution data. -->
+                            <destFile>${project.build.directory}/coverage-reports/jacoco-ut.exec</destFile>
+                            <!-- Sets the name of the property containing the settings for JaCoCo 
+                                runtime agent. -->
+                            <propertyName>surefireArgLine</propertyName>
+ 
+                        </configuration>
+                    </execution>
+                    <!-- Ensures that the code coverage report for unit tests is created 
+                        after unit tests have been run. -->
+                    <execution>
+                        <id>post-unit-test</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+ 
+                            <!-- Sets the path to the file which contains the execution data. -->
+                            <dataFile>${project.build.directory}/coverage-reports/jacoco-ut.exec</dataFile>
+                            <!-- Sets the output directory for the code coverage report. -->
+                            <outputDirectory>${project.reporting.outputDirectory}/jacoco-ut</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+ 
+            </plugin>
+            
+           <plugin>
+			    <groupId>org.eluder.coveralls</groupId>
+			    <artifactId>coveralls-maven-plugin</artifactId>
+			    <version>4.3.0</version>
+			    <configuration>
+			    	<jacocoReports>
+            			<jacocoReport>${project.basedir}/org.xtext.FLY.tests/target/site/jacoco-ut/jacoco.xml</jacocoReport>
+        			</jacocoReports>
+			    </configuration>
+			</plugin>
+			
 			<plugin>
 				<groupId>org.eclipse.tycho</groupId>
 				<artifactId>tycho-maven-plugin</artifactId>
@@ -127,8 +182,10 @@
 						</execution>
 					</executions>
 					<configuration>
+						<xtendAsPrimaryDebugSource>true</xtendAsPrimaryDebugSource>
 						<outputDirectory>${basedir}/xtend-gen</outputDirectory>
-						<testOutputDirectory>${basedir}/xtend-gen</testOutputDirectory>
+						<testOutputDirectory>${basedir}/xtend-gen/test</testOutputDirectory>
+						 <writeTraceFiles>true</writeTraceFiles>
 					</configuration>
 				</plugin>
 				<plugin>
