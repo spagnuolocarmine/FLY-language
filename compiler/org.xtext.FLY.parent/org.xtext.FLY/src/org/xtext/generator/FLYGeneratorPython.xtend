@@ -165,6 +165,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 
 	def generateBodyPyLocal(BlockExpression exps, List<Expression> parameters, String name, String env, boolean local) {
 		val channelNames = channelsNames(exps)
+		println(typeSystem)
 		return '''
 		import random
 		import time

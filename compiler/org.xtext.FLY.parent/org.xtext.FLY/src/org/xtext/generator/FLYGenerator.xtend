@@ -841,22 +841,22 @@ class FLYGenerator extends AbstractGenerator {
 				
 				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
 				
-				static AmazonSQS __sqs  = AmazonSQSClient.builder()
+				static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
 					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 					.withRegion("«region»")
 					.build();
 				
-				static AmazonIdentityManagement __iam = AmazonIdentityManagementClientBuilder.standard()
+				static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
 					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 					.withRegion("«region»")
 					.build();
 					
-				static AWSLambda __lambda = AWSLambdaClientBuilder.standard()
+				static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
 					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 					.withRegion("«region»")
 					.build();
 					
-				static AmazonS3 __s3 = AmazonS3Client.builder()
+				static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
 					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 					.withRegion("«region»")
 					.build();
@@ -936,7 +936,7 @@ class FLYGenerator extends AbstractGenerator {
 		.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
 		if (env.equals("aws")) {
 			return '''
-				__sqs.createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
+				__sqs_«declaration.environment.name».createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
 				
 				for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 					__thread_pool_«local».submit(new Callable<Object>() {
@@ -1068,26 +1068,27 @@ class FLYGenerator extends AbstractGenerator {
 				if (expression.target instanceof ChannelReceive) {
 					if ((((expression.target as ChannelReceive).target.environment as EnvironmentDeclaration).
 						right as DeclarationObject).features.get(0).value_s.equals("aws")) {
+						var env_name = ((expression.target as ChannelReceive).target.environment as EnvironmentDeclaration).name
 						if (expression.type.equals("Integer")) {
 							return '''
 								__
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
-								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
+								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
 								while(__res.getMessages().size() == 0){
-									__res = __sqs.receiveMessage(__recmsg);
+									__res = __sqs_«env_name».receiveMessage(__recmsg);
 								}
 								Integer.parseInt(__res.getMessages().get(0).getBody());
-								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
 						} else if (expression.type.equals("Float")) {
 							return '''
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
-								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
+								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
 								while(__res.getMessages().size() == 0){
-								__res = __sqs.receiveMessage(__recmsg);
+								__res = __sqs_«env_name».receiveMessage(__recmsg);
 								}
 								Double.parseDouble(__res.getMessages().get(0).getBody());
-								__sqs.deleteMessage(__sqs.getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
 							'''
 						}
 					}
@@ -1579,7 +1580,7 @@ class FLYGenerator extends AbstractGenerator {
 		if (call.input.isIs_for_index) {
 			if (!async){
 				ret+='''
-					__sqs.createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution));
+					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution));
 					ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
 				'''
 			}
@@ -1588,11 +1589,11 @@ class FLYGenerator extends AbstractGenerator {
 					int __num_proc_«call.target.name»_«func_ID» = «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 » ;
 					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
 						final String __s_temp = String.valueOf(___i);
-						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+						Future<Object> f = __thread_pool_«cred».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
-								__lambda.invoke(new InvokeRequest()
+								__lambda_«cred».invoke(new InvokeRequest()
 									.withInvocationType("Event")
 									.withFunctionName("«call.target.name»_"+__id_execution)
 									.withPayload(__s_temp));
@@ -1636,7 +1637,7 @@ class FLYGenerator extends AbstractGenerator {
 								// TODO Auto-generated method stub
 								//creare la stringa 
 								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)));
-								__lambda.invoke(new InvokeRequest()
+								__lambda_«cred».invoke(new InvokeRequest()
 									.withInvocationType("Event")
 									.withFunctionName("«call.target.name»_"+__id_execution)
 									.withPayload(__s_temp));
@@ -1676,7 +1677,7 @@ class FLYGenerator extends AbstractGenerator {
 								// TODO Auto-generated method stub
 								//creare la stringa 
 								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString());
-								__lambda.invoke(new InvokeRequest()
+								__lambda_«cred».invoke(new InvokeRequest()
 									.withInvocationType("Event") 
 									.withFunctionName("«call.target.name»_"+__id_execution)
 									.withPayload(__s_temp));
@@ -1705,17 +1706,17 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			
 			int __messagges_«call.target.name»_«func_ID» = 0;
-			String __queue_url___syncTermination_«call.target.name»_«func_ID» =	__sqs.getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl();
+			String __queue_url___syncTermination_«call.target.name»_«func_ID» =	__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl();
 			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
 				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»).
 						withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
 				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
 				for(Message msg : __res.getMessages()) { 
 					__messagges_«call.target.name»_«func_ID»++;
-					__sqs.deleteMessage(__queue_url___syncTermination_«call.target.name»_«func_ID», msg.getReceiptHandle());
+					__sqs_«cred».deleteMessage(__queue_url___syncTermination_«call.target.name»_«func_ID», msg.getReceiptHandle());
 				}
 			}
-			__sqs.deleteQueue(new DeleteQueueRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»));
+			__sqs_«cred».deleteQueue(new DeleteQueueRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»));
 			'''
 		}
 		// manage the callback
@@ -1742,12 +1743,13 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateChannelSend(ChannelSend send, String scope) {
 		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
+		var env_name = send.target.environment.name
 		if (env.equals("smp")) {
 			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
-				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs.getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
-				__sqs.sendMessage(__sndmsg)
+				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
+				__sqs_«env_name».sendMessage(__sndmsg)
 			'''
 		}
 
@@ -2013,6 +2015,7 @@ class FLYGenerator extends AbstractGenerator {
 			typeSystem.get(definition.name).put(exp.name,typeSystem.get("main").get(exp.name))
 		}
 		var returnExp = checkReturn(definition.body)
+		println(definition.name)
 		var s = '''
 			
 				protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
@@ -2034,11 +2037,12 @@ class FLYGenerator extends AbstractGenerator {
 	
 
 	def getParameterType(String name, Expression param, int pos) {
-
+		println("getParameterType "+name+ " params "+ param+ "pos "+ pos)
 		for (exp : res.allContents.toIterable.filter(Expression)) {
 			if (exp instanceof LocalFunctionCall && ((exp as LocalFunctionCall).target.name == name)) {
 				var typeobject = valuateArithmeticExpression(
 					((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(pos), "main")
+				println(typeobject)
 				if (typeobject == "Table") {
 					(param as VariableDeclaration).typeobject = "dat"
 					typeSystem.get(name).put((param as VariableDeclaration).name, "Table");

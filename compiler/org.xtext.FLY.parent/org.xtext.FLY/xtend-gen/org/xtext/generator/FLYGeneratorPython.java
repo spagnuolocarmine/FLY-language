@@ -235,6 +235,7 @@ public class FLYGeneratorPython extends AbstractGenerator {
   
   public String generateBodyPyLocal(final BlockExpression exps, final List<Expression> parameters, final String name, final String env, final boolean local) {
     final Object[] channelNames = this.channelsNames(exps);
+    InputOutput.<HashMap<String, HashMap<String, String>>>println(this.typeSystem);
     StringConcatenation _builder = new StringConcatenation();
     _builder.append("import random");
     _builder.newLine();
