@@ -1,0 +1,44 @@
+#osx
+.DS_Store
+
+# Compiled class file
+*.class
+**/*.class
+
+# Log file
+*.log
+**/*.log
+
+# BlueJ files
+*.ctxt
+**/*.ctxt
+
+# Package Files #
+*.jar
+**/*.jar
+*.war
+**/*.war
+*.ear
+**/*.ear
+*.zip
+**/*.zip
+*.tar.gz
+**/*.tar.gz
+*.rar
+**/*.rar
+
+**/.metadata
+**/.projects
+**/.settings
+**/bin
+**/build
+**/target
+**/src-gen
+**/emf-gen
+**/generated
+**/xtext-gen
+**/xtend-gen
+**/plugin.xml_gen
+
+
+
