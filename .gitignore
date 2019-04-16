@@ -39,6 +39,7 @@
 **/xtext-gen
 **/xtend-gen
 **/plugin.xml_gen
-
+**/.classpath
+**/.project
 
 
