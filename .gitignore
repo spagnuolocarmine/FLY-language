@@ -1,42 +1,3 @@
-.metadata
-bin/
-tmp/
-*.tmp
-*.bak
-*.swp
-*~.nib
-local.properties
-.settings/
-.loadpath
-.recommenders
- 
-# External tool builders
-.externalToolBuilders/
-
-# Locally stored "Eclipse launch configurations"
-*.launch
-
-# PyDev specific (Python IDE for Eclipse)
-*.pydevproject
-
-# CDT-specific (C/C++ Development Tooling)
-.cproject
- 
-# CDT- autotools
-.autotools
- 
-# Java annotation processor (APT)
-.actorypath
- 
-# PDT-specific (PHP Development Tools)
-.buildpath
- 
-# sbteclipse plugin
-.target
- 
-# Tern plugin
-.tern-project
-
 # Compiled class file
 *.class
 
@@ -61,3 +22,15 @@ local.properties
 hs_err_pid*
 /.metadata/
 
+# Generated files
+.project
+.settings
+bin
+build
+target
+src-gen
+emf-gen
+generated
+xtext-gen
+xtend-gen
+plugin.xml_gen
