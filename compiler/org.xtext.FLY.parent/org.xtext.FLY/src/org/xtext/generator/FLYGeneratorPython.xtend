@@ -50,6 +50,7 @@ import org.xtext.fLY.VariableLiteral
 import org.xtext.fLY.WhileExpression
 import org.xtext.fLY.PostfixOperation
 import org.xtext.fLY.ArrayDefinition
+import org.xtext.fLY.FlyFunctionCall
 
 class FLYGeneratorPython extends AbstractGenerator {
 	String name = null
@@ -62,22 +63,25 @@ class FLYGeneratorPython extends AbstractGenerator {
 	int nthread
 	int memory
 	int time
+	String user = null
 	Resource resourceInput
 	boolean isLocal
+	boolean isAsync
 
 	def generatePython(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context, String name_file,
 		FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
-		long id, boolean local) {
+		long id, boolean local, boolean async) {
 		name = name_file
 		root = func
 		typeSystem = scoping
 		id_execution = id
 		if (!local) {
 			env = (environment.right as DeclarationObject).features.get(0).value_s
-			language = (environment.right as DeclarationObject).features.get(4).value_s
-			nthread = (environment.right as DeclarationObject).features.get(5).value_t
-			memory = (environment.right as DeclarationObject).features.get(6).value_t
-			time = (environment.right as DeclarationObject).features.get(7).value_t					
+			user = (environment.right as DeclarationObject).features.get(1).value_s
+			language = (environment.right as DeclarationObject).features.get(5).value_s
+			nthread = (environment.right as DeclarationObject).features.get(6).value_t
+			memory = (environment.right as DeclarationObject).features.get(7).value_t
+			time = (environment.right as DeclarationObject).features.get(8).value_t					
 		} else {
 			env = "smp"
 			language = (environment.right as DeclarationObject).features.get(2).value_s
@@ -92,6 +96,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 
 			functionCalled.put(element.name,element)
 		}
+		this.isAsync = async
 		this.isLocal = local;
 		doGenerate(input, fsa, context)
 	}
@@ -99,7 +104,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		var allReqs = input.allContents
 			.filter(RequireExpression)
-			.filter[(it.environment.right as DeclarationObject).features.get(0).value_s != 'local']
+			.filter[(it.environment.right as DeclarationObject).features.get(0).value_s != 'smp']
 			.map[it.lib]
 			.toList
 		saveToRequirements(allReqs, fsa)
@@ -107,7 +112,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 				if (isLocal) {
 			fsa.generateFile(root.name + ".py", input.compilePython(root.name, true))	
 		} else {
-			fsa.generateFile(root.name + "_deploy.sh", input.compileScript(root.name, false))
+			fsa.generateFile(root.name + "_deploy.sh", input.compileScriptDeploy(root.name, false))
+			fsa.generateFile(root.name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
 		}
 
 		
@@ -115,7 +121,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		
 	}
 	
-	
+
 	def channelsNames(BlockExpression exps) {
 
 		var names = new HashSet<String>();		
@@ -246,6 +252,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 				«FOR exp : exps.expressions»
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
+				«IF !this.isAsync»
+					__syncTermination = sqs.get_queue_by_name(QueueName='__syncTermination_"${function}"_"${id}"')
+				«ENDIF»
 		'''
 	}
 
@@ -836,216 +845,255 @@ class FLYGeneratorPython extends AbstractGenerator {
 		«generateBodyPyLocal(root.body,root.parameters,name,env, local)»
 	'''
 	
-	def CharSequence compileScript(Resource resource, String name, boolean local) 
-'''
-#!/bin/bash
-
-if [ $# -eq 0 ]
-  then
-    echo "No arguments supplied. ./aws_deploy.sh <function_name> <id_function_execution>"
-    exit 1
-fi
-
-echo "Checking that aws-cli is installed"
-which aws
-if [ $? -eq 0 ]; then
-      echo "aws-cli is installed, continuing..."
-else
-      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
-      exit 1
-fi
-
-echo "Checking wheter virtualenv is installed"
-which virtualenv
-if [ $? -eq 0 ]; then
-	echo "virtualenv is installed, continuing..."
-else
-     echo "You need to install virtualenv. Google 'virtualenv install'"
-     exit 1
-fi
-
-
-function=$1
-id=$2
-
-echo '{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": [
-					"sqs:DeleteMessage",
-					"sqs:GetQueueAttributes",
-					"sqs:ReceiveMessage",
-					"sqs:SendMessage",
-					"sqs:*"
-				],
-				"Resource": "*" 
-			},
-			{
-			"Effect": "Allow",
-			"Action": [
-				"s3:*"
-			],
-			"Resource": "*" 
-								},
-			{
-				"Effect":"Allow",
-				"Action": [
-					"logs:CreateLogGroup",
-					"logs:CreateLogStream",
-					"logs:PutLogEvents"
-				],
-				"Resource": "*"
-			}
-		]
-	}' > policyDocument.json
-
-echo '{
+	def CharSequence compileScriptDeploy(Resource resource, String name, boolean local) 
+	'''
+	#!/bin/bash
+	
+	if [ $# -eq 0 ]
+	  then
+	    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+	    exit 1
+	fi
+	
+	echo "Checking that aws-cli is installed"
+	which aws
+	if [ $? -eq 0 ]; then
+	      echo "aws-cli is installed, continuing..."
+	else
+	      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
+	      exit 1
+	fi
+	
+	echo "Checking wheter virtualenv is installed"
+	which virtualenv
+	if [ $? -eq 0 ]; then
+		echo "virtualenv is installed, continuing..."
+	else
+	     echo "You need to install virtualenv. Google 'virtualenv install'"
+	     exit 1
+	fi
+	
+	
+	user=$1
+	function=$2
+	id=$3
+	
+	echo '{
 			"Version": "2012-10-17",
 			"Statement": [
 				{
 					"Effect": "Allow",
-					"Principal": {
-						"Service": "lambda.amazonaws.com"
-					},
-					"Action": "sts:AssumeRole" 
+					"Action": [
+						"sqs:DeleteMessage",
+						"sqs:GetQueueAttributes",
+						"sqs:ReceiveMessage",
+						"sqs:SendMessage",
+						"sqs:*"
+					],
+					"Resource": "*" 
+				},
+				{
+				"Effect": "Allow",
+				"Action": [
+					"s3:*"
+				],
+				"Resource": "*" 
+									},
+				{
+					"Effect":"Allow",
+					"Action": [
+						"logs:CreateLogGroup",
+						"logs:CreateLogStream",
+						"logs:PutLogEvents"
+					],
+					"Resource": "*"
 				}
 			]
-		}' > rolePolicyDocument.json
-
-#create role policy
-
-echo "creation of role lambda-sqs-execution ..."
-
-role_arn=$(aws iam get-role --role-name lambda-sqs-execution --query 'Role.Arn')
-
-if [ $? -eq 255 ]; then 
-	role_arn=$(aws iam create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
-fi
-
-echo "role lambda-sqs-execution created at ARN "$role_arn
-
-aws iam put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
-
-
-echo "Installing requirements"
-
-virtualenv venv -p «language»
-
-source venv/bin/activate
-
-
-echo "Checking wheter pip3 is installed"
-which pip3
-if [ $? -eq 0 ]; then
-	echo "pip3 is installed, continuing..."
-else
-     echo "You need to install pip3. Google 'pip3 install'"
-     exit 1
-fi
-
-PIPVER="$(pip3 -V | grep -Eo "(\d+\.)+\d+" | grep -Eo "\d+" | head -1)"
-if [ ${PIPVER} -lt 19 ]; then
-	echo "pip version is too old. installing new one"
-	curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-	python get-pip.py
-fi
-
-
-pip3 install boto3
-if [ $? -eq 0 ]; then
-    echo "..."
-else
-    echo "pip install boto3 failed"
-    exit 1
-fi
-
-pip3 install pytz
-if [ $? -eq 0 ]; then
-    echo "..."
-else
-    echo "pip install pytz failed"
-    exit 1
-fi
-
-
-pip3 install ortools
-if [ $? -eq 0 ]; then
-    echo "..."
-else
-    echo "pip install ortools failed"
-    exit 1
-fi
-
-if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
-
+		}' > policyDocument.json
+	
+	echo '{
+				"Version": "2012-10-17",
+				"Statement": [
+					{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": "lambda.amazonaws.com"
+						},
+						"Action": "sts:AssumeRole" 
+					}
+				]
+			}' > rolePolicyDocument.json
+	
+	#create role policy
+	
+	echo "creation of role lambda-sqs-execution ..."
+	
+	role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+	
+	if [ $? -eq 255 ]; then 
+		role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+	fi
+	
+	echo "role lambda-sqs-execution created at ARN "$role_arn
+	
+	aws iam --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+	
+	
+	echo "Installing requirements"
+	
+	virtualenv venv -p «language»
+	
+	source venv/bin/activate
+	
+	
+	echo "Checking wheter pip3 is installed"
+	which pip3
+	if [ $? -eq 0 ]; then
+		echo "pip3 is installed, continuing..."
+	else
+	     echo "You need to install pip3. Google 'pip3 install'"
+	     exit 1
+	fi
+	
+	PIPVER="$(pip3 -V | grep -Eo "(\d+\.)+\d+" | grep -Eo "\d+" | head -1)"
+	if [ ${PIPVER} -lt 19 ]; then
+		echo "pip version is too old. installing new one"
+		curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+		python get-pip.py
+	fi
+	
+	
+	pip3 install boto3
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "pip install boto3 failed"
+	    exit 1
+	fi
+	
+	pip3 install pytz
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "pip install pytz failed"
+	    exit 1
+	fi
+	
+	
+	pip3 install ortools
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "pip install ortools failed"
+	    exit 1
+	fi
+	
+	if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
+	
+			
+	echo ""
+	echo "add precompliled libraries"
+	
+	cd venv/lib/python3.6/site-packages/
+	echo "installing ortools"
+	rm -rf ortools*
+	wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	echo "ortools installed"
+	
+	echo "installing pandas"
+	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
+	echo "pandas installed"
+	
+	echo "installing numpy"
+	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	echo "numpy installed"
+	
+	echo "creating zip package"
+	zip -q -r9 ../../../../${id}\_lambda.zip .
+	echo "zip created"
+	
+	cd ../../../../
+	
+	
+	echo "«generateBodyPy(root.body,root.parameters,name,env, local)»
+	
+	«FOR fd:functionCalled.values()»
 		
-echo ""
-echo "add precompliled libraries"
-
-cd venv/lib/python3.6/site-packages/
-echo "installing ortools"
-rm -rf ortools*
-wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-echo "ortools installed"
-
-echo "installing pandas"
-wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
-echo "pandas installed"
-
-echo "installing numpy"
-wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-echo "numpy installed"
-
-echo "creating zip package"
-zip -q -r9 ../../../../${id}\_lambda.zip .
-echo "zip created"
-
-cd ../../../../
-
-
-echo "«generateBodyPy(root.body,root.parameters,name,env, local)»
-
-«FOR fd:functionCalled.values()»
+	«generatePyExpression(fd, name, local)»
 	
-«generatePyExpression(fd, name, local)»
-
-«ENDFOR»
-" > ${function}.py
-
-
-zip -g ${id}_lambda.zip ${function}.py
-
-deactivate
-
+	«ENDFOR»
+	" > ${function}.py
 	
-#create the lambda function
-echo "creation of the lambda function"
+	
+	zip -g ${id}_lambda.zip ${function}.py
+	
+	deactivate
+	
+		
+	#create the lambda function
+	echo "creation of the lambda function"
+	
+	
+	echo "zip file too big, uploading it using s3"
+	echo "creating bucket for s3"
+	aws s3 --profile ${user} mb s3://${function}${id}bucket
+	echo "s3 bucket created. uploading file"
+	aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+	echo "file uploaded, creating function"
+	aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size 128 --timeout 300
+	echo "lambda function created"
+	
+	
+	# clear 
+	rm -r venv/
+	rm ${function}.py
+	rm ${id}_lambda.zip
+	rm rolePolicyDocument.json
+	rm policyDocument.json
+	'''
 
+	def CharSequence compileScriptUndeploy(Resource resource, String string, boolean b) '''
+	#!/bin/bash
+				
+		if [ $# -eq 0 ]
+		  then
+		    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+		    exit 1
+		fi
+		
+		user=$1
+		function=$2
+		id=$3
+		
+		# delete user queue
+		«FOR res: resource.allContents.toIterable.filter(ChannelDeclaration).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+			#get «res.name»_${id} queue-url
+			
+			echo "get «res.name»_${id} queue-url"
+			queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
+			echo ${queue_url//\"}
+			
+			echo "delete queue at url ${queue_url//\"} "
+			aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+			
+		«ENDFOR»
 
-echo "zip file too big, uploading it using s3"
-echo "creating bucket for s3"
-aws s3 mb s3://${function}${id}bucket
-echo "s3 bucket created. uploading file"
-aws s3 cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-echo "file uploaded, creating function"
-aws lambda create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size 128 --timeout 300
-echo "lambda function created"
-
-
-# clear 
-rm -r venv/
-rm ${function}.py
-rm ${id}_lambda.zip
-rm rolePolicyDocument.json
-rm policyDocument.json
+		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+			#delete «res.target.name»_${id} lambda function
+			echo "delete «res.target.name»_${id} lambda function"
+			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+			
+		«ENDFOR»
 	'''
 
 }
+
+
+
+

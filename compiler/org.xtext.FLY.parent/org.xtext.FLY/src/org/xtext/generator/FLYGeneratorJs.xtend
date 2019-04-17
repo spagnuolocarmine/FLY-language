@@ -60,27 +60,31 @@ class FLYGeneratorJs extends AbstractGenerator {
 	int time = 0
 	FunctionDefinition root = null
 	var id_execution = null
+	var user = ""
 	HashMap<String, HashMap<String, String>> typeSystem = null
 	boolean isLocal;
+	boolean isAsync;
 	
-	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local){
+	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, 
+		EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local,boolean async){
 		this.name=name_file
 		this.root = func
 		this.typeSystem=scoping
 		this.id_execution = id
 		if(!local){
 			this.env = (environment.right as DeclarationObject).features.get(0).value_s
-			this.language = (environment.right as DeclarationObject).features.get(4).value_s
-			this.nthread = (environment.right as DeclarationObject).features.get(5).value_t
-			this.memory = (environment.right as DeclarationObject).features.get(6).value_t
-			this.time = (environment.right as DeclarationObject).features.get(7).value_t
+			this.user = (environment.right as DeclarationObject).features.get(1).value_s
+			this.language = (environment.right as DeclarationObject).features.get(5).value_s
+			this.nthread = (environment.right as DeclarationObject).features.get(6).value_t
+			this.memory = (environment.right as DeclarationObject).features.get(7).value_t
+			this.time = (environment.right as DeclarationObject).features.get(8).value_t
 		}else{
 			this.env="smp"
 			this.nthread = (environment.right as DeclarationObject).features.get(1).value_t
 			this.language = (environment.right as DeclarationObject).features.get(2).value_s
 		}
-		
-		this.isLocal = local
+		this.isAsync = async
+		this.isLocal = local 
 		doGenerate(input,fsa,context) 
 	}
 	
@@ -132,15 +136,25 @@ class FLYGeneratorJs extends AbstractGenerator {
 				
 				«FOR exp : parameters»
 				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event.Records[0].body));
+						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event));
 						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray()
 					«ELSE»
-						var «(exp as VariableDeclaration).name» = event.Records[0].body;
+						var «(exp as VariableDeclaration).name» = event;
 					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
-				«ENDFOR» 
+				«ENDFOR»
+				«IF !this.isAsync»
+					__data = await sqs.getQueueUrl({ QueueName: "__syncTermination_'${function}'_'${id}'"}).promise();
+								
+					__params = {
+						MessageBody : JSON.stringify("terminate"),
+						QueueUrl : __data.QueueUrl
+					}
+								
+					__data = await sqs.sendMessage(__params).promise();
+				«ENDIF»
 			}
 		'''
 	}
@@ -850,12 +864,13 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		if [ $# -eq 0 ]
 		  then
-		    echo "No arguments supplied. ./aws_deploy.sh <function_name> <id_function_execution>"
+		    echo "No arguments supplied. ./aws_deploy.sh <user profile> <function_name> <id_function_execution>"
 		    exit 1
 		fi
 		
-		function=$1
-		id=$2
+		user=$1
+		function=$2
+		id=$3
 		
 		echo "Checking that aws-cli is installed"
 		which aws
@@ -916,15 +931,15 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		echo "creation of role lambda-sqs-execution ..."
 		
-		role_arn=$(aws iam get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+		role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 		
 		if [ $? -eq 255 ]; then 
-			role_arn=$(aws iam create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+			role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 		fi
 		
 		echo "role lambda-sqs-execution created at ARN "$role_arn
 		
-		aws iam put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+		aws iam --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
 		
 		mkdir ${function}_lambda
 				
@@ -988,10 +1003,10 @@ class FLYGeneratorJs extends AbstractGenerator {
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws lambda create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+		aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
 		
 		while [ $? -ne 0 ]; do
-			aws lambda create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
 		done
 		
 		echo "lambda function created"
@@ -1009,39 +1024,31 @@ class FLYGeneratorJs extends AbstractGenerator {
 			
 		if [ $# -eq 0 ]
 		  then
-		    echo "No arguments supplied. ./aws_deploy.sh <function_name> <id_function_execution>"
+		    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
 		    exit 1
 		fi
 		
-		function=$1
-		id=$2
+		user=$1
+		function=$2
+		id=$3
 		
 		# delete user queue
 		«FOR res: resource.allContents.toIterable.filter(ChannelDeclaration).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")] »
 			#get «res.name»_${id} queue-url
 			
 			echo "get «res.name»_${id} queue-url"
-			queue_url=$(aws sqs get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
+			queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
 			echo ${queue_url//\"}
 			
 			echo "delete queue at url ${queue_url//\"} "
-			aws sqs delete-queue --queue-url ${queue_url//\"}
+			aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
 			
 		«ENDFOR»
 
 		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-			#delete «res.target.name» input queue
-			
-			echo "get __input_«res.target.name»_${id}_queue queue-url"
-			queue_url=$(aws sqs get-queue-url --queue-name __input_«res.target.name»_${id}_queue --query 'QueueUrl')
-			echo ${queue_url//\"}
-			
-			echo "delete queue at url ${queue_url//\"} "
-			aws sqs delete-queue --queue-url ${queue_url//\"}
-			
 			#delete «res.target.name»_${id} lambda function
 			echo "delete «res.target.name»_${id} lambda function"
-			aws lambda delete-function function-name «res.target.name»_${id}
+			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 			
 		«ENDFOR»
 		

@@ -89,25 +89,26 @@ class FLYGenerator extends AbstractGenerator {
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
 		fsa.generateFile(name + ".java", resource.compileJava)
-		
 		// generate .js or .py file
 		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
 			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
 				value_s;
+			var async = element.isAsync;
 			if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
 				if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
-					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
+					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 				}else{
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true);
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 				}	
 			}
 			if (type_env != "smp") {
-				var language = ((element.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).
+				var language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).
 				value_s;
+				
 				if (language.contains("python")){
-					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false); 
+					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async); 
 				}else if (language.contains("nodejs")) {
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false);
+					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async);
 				}
 			}
 		}
@@ -242,12 +243,12 @@ class FLYGenerator extends AbstractGenerator {
 				
 				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
 				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
-					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("smp").get("nthread"));
+					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("«resource.allContents.toIterable.filter(EnvironmentDeclaration)
+				.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0).name»").get("nthread"));
 				«ENDFOR»
 				
 				«FOR element: resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud]»
 						«deployFileOnCloud(element,file_deploy_id++)»
-						
 				«ENDFOR»
 				
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
@@ -316,9 +317,13 @@ class FLYGenerator extends AbstractGenerator {
 		def undeployFlyFunctionOnCloud(FlyFunctionCall call) {
 			if(deployed_function.contains(call.target.name)){
 				deployed_function.remove(call.target.name)
+				var user = (call.environment.right as DeclarationObject).features.get(1).value_s
+				var cred = call.environment.name
 				return '''
 				Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
-				ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «call.target.name» "+__id_execution);
+				ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+				__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+				__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
 				Process __p_undeploy_«call.target.name»;
 				try {
 					__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
@@ -330,6 +335,9 @@ class FLYGenerator extends AbstractGenerator {
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
+				«IF  !call.isIsAsync »
+				__sqs_«cred».deleteQueue(new DeleteQueueRequest(__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl())); 
+				«ENDIF»		
 				'''				
 			}else
 				return ''''''
@@ -338,9 +346,11 @@ class FLYGenerator extends AbstractGenerator {
 		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
 			if (!deployed_function.contains(call.target.name)){
 				deployed_function.add(call.target.name)
+				var user = (call.environment.right as DeclarationObject).features.get(1).value_s
+				var cred = call.environment.name
 				return '''
 					Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
-					ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «call.target.name» "+__id_execution);
+					ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
 					__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 					Map<String, String> __env = __processBuilder_deploy_«call.target.name».environment();
 					__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
@@ -360,6 +370,7 @@ class FLYGenerator extends AbstractGenerator {
 						e.printStackTrace();
 					}
 					«IF  !call.isIsAsync »
+					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution)); 
 					«ENDIF»
 					'''
 			}
@@ -834,9 +845,9 @@ class FLYGenerator extends AbstractGenerator {
 			'''
 		}
 		else if (env.equals("aws")) {
-			var access_id_key = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
-			var secret_access_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
-			var region = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+			var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+			var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+			var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
 			return '''
 				
 				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
@@ -866,26 +877,29 @@ class FLYGenerator extends AbstractGenerator {
 	
 	def setEnvironmentDeclarationInfo(EnvironmentDeclaration dec){
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
+		var dec_name = dec.name
 		if (env.equals("smp")){
 			return '''
-				__fly_environment.put("«env»", new HashMap<String,Object>());
-				__fly_environment.get("«env»").put("nthread",«((dec.right as DeclarationObject).features.get(1)).value_t»);
+				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
+				__fly_environment.get("«dec_name»").put("nthread",«((dec.right as DeclarationObject).features.get(1)).value_t»);
 				«IF (dec.right as DeclarationObject).features.length==3»
-				__fly_environment.get("«env»").put("language","«((dec.right as DeclarationObject).features.get(2)).value_s»");
+				__fly_environment.get("«dec_name»").put("language","«((dec.right as DeclarationObject).features.get(2)).value_s»");
 				«ENDIF»
 			'''
 		}
 		else if (env.equals("aws")) {
-			var threads = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_t
-			var memory = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
-			var time = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
-			var language =  ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
+			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
+			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
+			var language =  ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
+			var profile =((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
 			return '''
-				__fly_environment.put("«env»", new HashMap<String,Object>());
-				__fly_environment.get("«env»").put("nthread",«threads»);
-				__fly_environment.get("«env»").put("memory",«memory»);
-				__fly_environment.get("«env»").put("time",«time»);
-				__fly_environment.get("«env»").put("language","«language»");
+				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
+				__fly_environment.get("«dec_name»").put("profile","«profile»");
+				__fly_environment.get("«dec_name»").put("nthread",«threads»);
+				__fly_environment.get("«dec_name»").put("memory",«memory»);
+				__fly_environment.get("«dec_name»").put("time",«time»);
+				__fly_environment.get("«dec_name»").put("language","«language»");
 			'''
 		}
 	}
@@ -943,12 +957,12 @@ class FLYGenerator extends AbstractGenerator {
 						@Override
 						public Object call() throws Exception {
 							while(__wait_on_«declaration.name») {
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs.getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl()).
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«declaration.environment.name».getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl()).
 										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
-								ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+								ReceiveMessageResult __res = __sqs_«declaration.environment.name».receiveMessage(__recmsg);
 								for(Message msg : __res.getMessages()) { 
 									«declaration.name».put(msg.getBody());
-									__sqs.deleteMessage(__sqs.getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+									__sqs_«declaration.environment.name».deleteMessage(__sqs_«declaration.environment.name».getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
 							return null;
@@ -1574,13 +1588,12 @@ class FLYGenerator extends AbstractGenerator {
 		// generate the aws lambda function
 		var async = call.isIsAsync
 		var cred = call.environment.name
-		var region = ((call.environment.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+		var region = ((call.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
 		var function = call.target.name
 		var ret = ''''''
 		if (call.input.isIs_for_index) {
 			if (!async){
 				ret+='''
-					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution));
 					ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
 				'''
 			}
@@ -1710,13 +1723,12 @@ class FLYGenerator extends AbstractGenerator {
 			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
 				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»).
 						withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
-				ReceiveMessageResult __res = __sqs.receiveMessage(__recmsg);
+				ReceiveMessageResult __res = __sqs_«cred».receiveMessage(__recmsg);
 				for(Message msg : __res.getMessages()) { 
 					__messagges_«call.target.name»_«func_ID»++;
 					__sqs_«cred».deleteMessage(__queue_url___syncTermination_«call.target.name»_«func_ID», msg.getReceiptHandle());
 				}
 			}
-			__sqs_«cred».deleteQueue(new DeleteQueueRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»));
 			'''
 		}
 		// manage the callback
