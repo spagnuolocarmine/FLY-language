@@ -27,6 +27,7 @@
 *.rar
 **/*.rar
 
+**/.metadata
 **/.settings
 **/bin
 **/build
