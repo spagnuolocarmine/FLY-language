@@ -27,7 +27,6 @@
 *.rar
 **/*.rar
 
-**/.projects
 **/.settings
 **/bin
 **/build
@@ -38,7 +37,5 @@
 **/xtext-gen
 **/xtend-gen
 **/plugin.xml_gen
-**/.classpath
-**/.project
 
 
