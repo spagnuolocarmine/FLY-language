@@ -33,6 +33,7 @@
 	</section>
 	<section name="MavenProjectImportWizardPage">
 		<list key="rootDirectory">
+			<item value="/Users/matteodauria/Desktop/FLY_Master/topush/FLY-language/compiler/org.xtext.FLY.parent"/>
 			<item value="/home/matdar/Scrivania/FLY_Language/FLY-language/compiler/org.xtext.FLY.parent"/>
 			<item value="/home/matdar/Scrivania/FLY_Language/FLY-language/compiler/org.xtext.FLY.parent/org.xtext.FLY.standalone"/>
 		</list>
@@ -46,7 +47,7 @@
 		</list>
 	</section>
 	<section name="MavenProjectWizardArchetypePage">
-		<item value="All Catalogs" key="catalog"/>
+		<item key="catalog" value="All Catalogs"/>
 		<list key="projectNameTemplate">
 			<item value="[artifactId]"/>
 			<item value="[artifactId]-TRUNK"/>
