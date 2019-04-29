@@ -85,7 +85,6 @@ class FLYGenerator extends AbstractGenerator {
 		res = resource;
 		var name_extension = resource.URI.toString.split('/').last
 		name = name_extension.toString.split('.fly').get(0)
-		//fsa.generateFile(".fly_config.txt",resource.compileConfig)
 		// generate .java file
 		typeSystem.put("main", new HashMap<String, String>())
 		fsa.generateFile(name + ".java", resource.compileJava)
@@ -602,7 +601,8 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (dec.right instanceof FlyFunctionCall) {
 				var s = '''
 					«generateFlyFunctionCall(dec.right as FlyFunctionCall,scope)»
-					List<Future<Object>> «dec.name» = «last_func_result»;
+					
+					final LinkedTransferQueue<Object> «dec.name» = new LinkedTransferQueue<Object>();
 				'''
 				typeSystem.get(scope).put(dec.name, "FutureList")
 				return s
@@ -1171,23 +1171,58 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateVariableFunction(VariableFunction expression, Boolean t, String scope) {
 		if (expression.target.right instanceof FlyFunctionCall) {
-			var feature=""
-			if(expression.feature.equals("wait")){
-				feature="get"
-			}else{
-				feature=expression.feature
-			}
+			var func = expression.target.right as FlyFunctionCall
+			var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
+				.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
+				var cred = func.environment.name
 			var s = ""
-			s += "for(Future _el :" + last_func_result + "){
-						_el." +feature+ "("
-			for (exp : expression.expressions) {
-				s += generateArithmeticExpression(exp, scope)
-				if (exp != expression.expressions.last()) {
-					s += ","
+			if ((func.environment.right as DeclarationObject).features.get(0).value_s.equals("smp")){
+				var feature=""
+				if(expression.feature.equals("wait")){
+					feature="get"
+				}else{
+					feature=expression.feature
 				}
-			}
-			s += ");
-					}"
+				
+				s += "for(Future _el :" + last_func_result + "){
+							_el." +feature+ "("
+				for (exp : expression.expressions) {
+					s += generateArithmeticExpression(exp, scope)
+					if (exp != expression.expressions.last()) {
+						s += ","
+					}
+				}
+				s += ");
+						}"
+			}else{
+				var func_name = ((res.allContents.toIterable.filter(VariableDeclaration).filter[it.name==expression.target.name].get(0) as VariableDeclaration).right as FlyFunctionCall).target.name
+				if(expression.feature.equals("wait")){
+					s+='''
+						__thread_pool_«local».submit(new Callable<Object>() {
+							
+							@Override
+							public Object call() throws Exception{
+								
+								while(true){
+									ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«cred».getQueueUrl("__syncTermination_«func_name»_"+__id_execution).getQueueUrl()).
+										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
+									ReceiveMessageResult __res = __sqs_«cred».receiveMessage(__recmsg);
+									for(Message msg : __res.getMessages()) { 
+										«expression.target.name».put(msg.getBody());
+										__sqs_«cred».deleteMessage(__sqs_«cred».getQueueUrl("__syncTermination_«func_name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+									}
+								}
+							}
+							
+						});
+						
+						while(«expression.target.name».size()!=__num_proc_«func_name»_«func_ID-1»){
+							
+						}
+					'''
+				}
+			}	
+
 			return s
 		}
 		if (expression.target.typeobject.equals("dat")) {
