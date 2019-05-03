@@ -240,21 +240,24 @@ class FLYGeneratorPython extends AbstractGenerator {
 						
 			def handler(event,context):
 				
+				id_func=event['id']
+				data = event['data']
 				«FOR exp : parameters»
 					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-						__columns = event[0].keys()
-						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(event))
+						__columns = data[0].keys()
+						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
 					«ELSE»
-						«(exp as VariableDeclaration).name» = event # TODO check
+						«(exp as VariableDeclaration).name» = data # TODO check
 					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
-				«IF !this.isAsync»
-					__syncTermination = sqs.get_queue_by_name(QueueName='__syncTermination_"${function}"_"${id}"')
-				«ENDIF»
+				
+				__syncTermination = sqs.get_queue_by_name(QueueName='termination_"${function}"_"${id}"_'+str(id_func))
+				__syncTermination.send_message(MessageBody=json.dumps('terminate'))
+			
 		'''
 	}
 
@@ -1085,8 +1088,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		«ENDFOR»
 
 		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-			#delete «res.target.name»_${id} lambda function
-			echo "delete «res.target.name»_${id} lambda function"
+			#delete lambda function: «res.target.name»_${id}
+			echo "delete lambda function: «res.target.name»_${id}"
 			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 			
 		«ENDFOR»

@@ -210,7 +210,7 @@ class FLYGenerator extends AbstractGenerator {
 		public class «name» {
 			
 			static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
-			
+			static HashMap<String,HashMap<String,Integer>> __fly_async_invocation_id = new HashMap<String,HashMap<String,Integer>>();
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof ChannelDeclaration»
 					«generateChannelDeclaration(element)»	
@@ -281,8 +281,9 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDIF»	
 			«ENDFOR»	
 			
-			private static String __generateString(Table t) {
+			private static String __generateString(Table t,int id) {
 				StringBuilder b = new StringBuilder();
+				b.append("{\"id\":"+id+",\"data\":");
 				b.append("[");
 				int i_r = t.rowCount();
 				for(Row r : t) {
@@ -293,12 +294,13 @@ class FLYGenerator extends AbstractGenerator {
 					b.append("}"+(((i_r != 1 ))?",":""));
 					i_r--;
 				}
-				b.append("]");
+				b.append("]}");
 				return b.toString();
 			}
 			
-			private static String __generateString(String s) {
+			private static String __generateString(String s,int id) {
 				StringBuilder b = new StringBuilder();
+				b.append("{\"id\":"+id+",\"data\":");
 				b.append("[");
 				String[] tmp = s.split("\n");
 				for(String t: tmp){
@@ -307,7 +309,7 @@ class FLYGenerator extends AbstractGenerator {
 						b.append(",");
 					}
 				}
-				b.append("]");
+				b.append("]}");
 				return b.toString();
 			}
 		}
@@ -334,9 +336,9 @@ class FLYGenerator extends AbstractGenerator {
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
-				«IF  !call.isIsAsync »
-				__sqs_«cred».deleteQueue(new DeleteQueueRequest(__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl())); 
-				«ENDIF»		
+«««				«IF  !call.isIsAsync »
+«««				__sqs_«cred».deleteQueue(new DeleteQueueRequest(__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl())); 
+«««				«ENDIF»		
 				'''				
 			}else
 				return ''''''
@@ -351,11 +353,11 @@ class FLYGenerator extends AbstractGenerator {
 					Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
 					ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
 					__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
-					Map<String, String> __env = __processBuilder_deploy_«call.target.name».environment();
+					Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
 					__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-					String __path_env = __env.get("PATH");
-					if (!__path_env.contains("/usr/local/bin")) {
-						 __env.put("PATH", __path_env+":/usr/local/bin");
+					String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
+					if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
+						 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
 					}
 					Process __p_deploy_«call.target.name»;
 					try {
@@ -368,9 +370,9 @@ class FLYGenerator extends AbstractGenerator {
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
-					«IF  !call.isIsAsync »
-					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution)); 
-					«ENDIF»
+«««					
+«««					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution)); 
+«««					
 					'''
 			}
 			else 
@@ -601,8 +603,11 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (dec.right instanceof FlyFunctionCall) {
 				var s = '''
 					«generateFlyFunctionCall(dec.right as FlyFunctionCall,scope)»
-					
+					__fly_async_invocation_id.put("«dec.name»", new HashMap<String,Integer>());
+					__fly_async_invocation_id.get("«dec.name»").put("id",«func_ID-1»);
+					__fly_async_invocation_id.get("«dec.name»").put("num_invocation",__num_proc_«(dec.right as FlyFunctionCall).target.name»_«func_ID-1»);
 					final LinkedTransferQueue<Object> «dec.name» = new LinkedTransferQueue<Object>();
+					
 				'''
 				typeSystem.get(scope).put(dec.name, "FutureList")
 				return s
@@ -952,7 +957,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''
 				__sqs_«declaration.environment.name».createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
 				
-				for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+				//for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 					__thread_pool_«local».submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
@@ -968,7 +973,7 @@ class FLYGenerator extends AbstractGenerator {
 							return null;
 						}
 					});
-				}
+				//}
 			'''
 		}
 	}
@@ -1172,9 +1177,9 @@ class FLYGenerator extends AbstractGenerator {
 	def generateVariableFunction(VariableFunction expression, Boolean t, String scope) {
 		if (expression.target.right instanceof FlyFunctionCall) {
 			var func = expression.target.right as FlyFunctionCall
-			var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
-				var cred = func.environment.name
+//			var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
+//				.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
+			var cred = func.environment.name
 			var s = ""
 			if ((func.environment.right as DeclarationObject).features.get(0).value_s.equals("smp")){
 				var feature=""
@@ -1198,25 +1203,25 @@ class FLYGenerator extends AbstractGenerator {
 				var func_name = ((res.allContents.toIterable.filter(VariableDeclaration).filter[it.name==expression.target.name].get(0) as VariableDeclaration).right as FlyFunctionCall).target.name
 				if(expression.feature.equals("wait")){
 					s+='''
-						__thread_pool_«local».submit(new Callable<Object>() {
+						__thread_pool_«cred».submit(new Callable<Object>() {
 							
 							@Override
 							public Object call() throws Exception{
-								
+								int id_invocation = __fly_async_invocation_id.get("«expression.target.name»").get("id");
 								while(true){
-									ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«cred».getQueueUrl("__syncTermination_«func_name»_"+__id_execution).getQueueUrl()).
+									ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«cred».getQueueUrl("termination_«func_name»_"+__id_execution+"_"+id_invocation).getQueueUrl()).
 										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
 									ReceiveMessageResult __res = __sqs_«cred».receiveMessage(__recmsg);
 									for(Message msg : __res.getMessages()) { 
 										«expression.target.name».put(msg.getBody());
-										__sqs_«cred».deleteMessage(__sqs_«cred».getQueueUrl("__syncTermination_«func_name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+										__sqs_«cred».deleteMessage(__sqs_«cred».getQueueUrl("termination_«func_name»_"+__id_execution+"_"+id_invocation).getQueueUrl(), msg.getReceiptHandle());
 									}
 								}
 							}
 							
 						});
 						
-						while(«expression.target.name».size()!=__num_proc_«func_name»_«func_ID-1»){
+						while(«expression.target.name».size()!=__fly_async_invocation_id.get("«expression.target.name»").get("num_invocation")){
 							
 						}
 					'''
@@ -1627,16 +1632,18 @@ class FLYGenerator extends AbstractGenerator {
 		var function = call.target.name
 		var ret = ''''''
 		if (call.input.isIs_for_index) {
-			if (!async){
-				ret+='''
-					ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
-				'''
-			}
+			
+			//create the termination SQS queue 
+			ret+='''
+				__sqs_«cred».createQueue(new CreateQueueRequest("termination_«call.target.name»_"+__id_execution+"_«func_ID»")); 
+				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
+			'''
+			
 			if (call.input.f_index instanceof RangeLiteral) {
 				ret += '''
 					int __num_proc_«call.target.name»_«func_ID» = «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 » ;
 					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
-						final String __s_temp = String.valueOf(___i);
+						final String __s_temp = "{\"id\": «func_ID»,\"data\":"+String.valueOf(___i)+"}";
 						Future<Object> f = __thread_pool_«cred».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
@@ -1648,9 +1655,7 @@ class FLYGenerator extends AbstractGenerator {
 								return null;
 							}
 						});
-					«IF !async»
 					__sync_list_«call.target.name»_«func_ID».add(f);
-					«ENDIF»
 					}
 				'''
 			} else if (call.input.f_index instanceof VariableLiteral &&
@@ -1684,7 +1689,7 @@ class FLYGenerator extends AbstractGenerator {
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								//creare la stringa 
-								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)));
+								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)),«func_ID»);
 								__lambda_«cred».invoke(new InvokeRequest()
 									.withInvocationType("Event")
 									.withFunctionName("«call.target.name»_"+__id_execution)
@@ -1692,9 +1697,7 @@ class FLYGenerator extends AbstractGenerator {
 								return null;
 							}
 						});
-					«IF !async»
 					__sync_list_«call.target.name».add(f);
-					«ENDIF»
 					}
 				 '''
 			}else if (call.input.f_index instanceof VariableLiteral &&
@@ -1724,7 +1727,7 @@ class FLYGenerator extends AbstractGenerator {
 							public Object call() throws Exception {
 								// TODO Auto-generated method stub
 								//creare la stringa 
-								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString());
+								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
 								__lambda_«cred».invoke(new InvokeRequest()
 									.withInvocationType("Event") 
 									.withFunctionName("«call.target.name»_"+__id_execution)
@@ -1732,15 +1735,13 @@ class FLYGenerator extends AbstractGenerator {
 								return null;
 							}
 						});
-					«IF !async»
 					__sync_list_«call.target.name»_«func_ID».add(f);
-					«ENDIF»
 					}
 				'''
 			}
 		}
-		if(!async){ 
-			ret+='''
+		
+		ret+='''
 			for (Future<Object> f: __sync_list_«call.target.name»_«func_ID»){
 				try {
 					f.get();
@@ -1751,10 +1752,12 @@ class FLYGenerator extends AbstractGenerator {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-			}
-			
+			}'''
+		
+		if(!async){ 
+			ret+='''
 			int __messagges_«call.target.name»_«func_ID» = 0;
-			String __queue_url___syncTermination_«call.target.name»_«func_ID» =	__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl();
+			String __queue_url___syncTermination_«call.target.name»_«func_ID» =	__sqs_«cred».getQueueUrl("termination_«call.target.name»_"+__id_execution+"_«func_ID»").getQueueUrl();
 			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
 				ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__queue_url___syncTermination_«call.target.name»_«func_ID»).
 						withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
@@ -1795,8 +1798,7 @@ class FLYGenerator extends AbstractGenerator {
 			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
-				SendMessageRequest __sndmsg = new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), «generateArithmeticExpression(send.expression,scope)».toString());
-				__sqs_«env_name».sendMessage(__sndmsg)
+				__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));
 			'''
 		}
 
@@ -2191,6 +2193,7 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def String valuateArithmeticExpression(ArithmeticExpression exp, String scope) {
+		println(scope)
 		if (exp instanceof NumberLiteral) {
 			return "Integer"
 		} else if (exp instanceof BooleanLiteral) {
