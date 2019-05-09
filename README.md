@@ -3,6 +3,8 @@ Gitter chat: [![Join the chat at https://gitter.im/isislab-unisa/fly-language](h
 
 Building status: [![Build Status](https://travis-ci.org/spagnuolocarmine/FLY-language.svg?branch=master)](https://travis-ci.org/spagnuolocarmine/FLY-language) Code Coverage: [![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)
 
+Documentation:  
+
 # FLY a Domain Specific Language for scientific computing on the Multi Cloud 
 
 FLY is a parallel work-flow scripting imperative language inspired by functional languages peculiarities.
@@ -33,10 +35,12 @@ FLY is compiled in native code (Java code) and it is able to automatically explo
 
 ## Standalone FLY compiler
 
-Download the tar.gz (aggiungere indirizzo al file nella sezione release)
+Download the tar.gz at the following link:  
 
-Untar the __compiler.tar__ 
+
+Unpack the __compiler.tar.gz__ 
 ```
+tar -xvzf compiler.tar.gz
 ```
 
 To compile and run a .fly program:
