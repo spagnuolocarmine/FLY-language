@@ -8,17 +8,16 @@ import org.eclipse.emf.ecore.EReference
 import org.xtext.fLY.BlockExpression
 import org.xtext.fLY.VariableDeclaration
 import org.xtext.fLY.FunctionDefinition
-import org.xtext.fLY.ChannelDeclaration
 import org.xtext.fLY.Fly
 import static extension org.eclipse.xtext.EcoreUtil2.*
 import java.util.List
 import org.eclipse.xtext.scoping.IScope
 import org.eclipse.xtext.scoping.Scopes
 import org.xtext.fLY.ForExpression
-import org.xtext.fLY.DatDeclaration
-import org.xtext.fLY.RandomDeclaration
-import org.xtext.fLY.EnvironmentDeclaration
 import org.xtext.fLY.ConstantDeclaration
+import org.xtext.fLY.DeclarationObject
+import java.util.ArrayList
+import java.util.Arrays
 
 /**
  * This class contains custom scoping description.
@@ -28,6 +27,7 @@ import org.xtext.fLY.ConstantDeclaration
  */
 class FLYScopeProvider extends AbstractFLYScopeProvider {
 
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","azure"));
 	override getScope(EObject context, EReference reference) {
 
 		val pBlock = getParentBlock(context)
@@ -46,18 +46,6 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				element.add(el)
 			}
 			if (el instanceof ConstantDeclaration) {
-				element.add(el)
-			}
-			if (el instanceof DatDeclaration) {
-				element.add(el)
-			}
-			if (el instanceof RandomDeclaration) {
-				element.add(el)
-			}
-			if (el instanceof ChannelDeclaration) {
-				element.add(el)
-			}
-			if (el instanceof EnvironmentDeclaration){
 				element.add(el)
 			}
 			if (el instanceof FunctionDefinition){
@@ -88,7 +76,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			val allElements = exp.getContainerOfType(typeof(Fly)).elements
 			val containingElement = allElements.findFirst[isAncestor(it, exp)]
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
-				typeof(ChannelDeclaration))) {
+				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
@@ -96,7 +84,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
-				typeof(EnvironmentDeclaration))) {
+				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
@@ -128,11 +116,11 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(DatDeclaration))) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("DataFrame")]) {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(ChannelDeclaration))) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
@@ -140,7 +128,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(EnvironmentDeclaration))) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
 			declaration.add(element)
 		}
 		return declaration

@@ -15,13 +15,10 @@ import org.xtext.fLY.BinaryOperation
 import org.xtext.fLY.BlockExpression
 import org.xtext.fLY.BooleanLiteral
 import org.xtext.fLY.CastExpression
-import org.xtext.fLY.ChannelDeclaration
 import org.xtext.fLY.ChannelReceive
 import org.xtext.fLY.ChannelSend
-import org.xtext.fLY.DatDeclaration
 import org.xtext.fLY.DatTableObject
 import org.xtext.fLY.DeclarationObject
-import org.xtext.fLY.EnvironmentDeclaration
 import org.xtext.fLY.Expression
 import org.xtext.fLY.FloatLiteral
 import org.xtext.fLY.ForExpression
@@ -69,7 +66,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	boolean isAsync
 
 	def generatePython(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context, String name_file,
-		FunctionDefinition func, EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
+		FunctionDefinition func, VariableDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
 		long id, boolean local, boolean async) {
 		name = name_file
 		root = func
@@ -129,13 +126,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 				.filter[it instanceof ChannelReceive]
 				.filter[functionContainer(it) === root.name]
 				.map[it as ChannelReceive]
-				.map[it.target as ChannelDeclaration]
+				.map[it.target as VariableDeclaration]
 				.map[it.name]
 		val chSends = resourceInput.allContents
 				.filter[it instanceof ChannelSend]
 				.filter[functionContainer(it) === root.name]
 				.map[it as ChannelSend]
-				.map[it.target as ChannelDeclaration]
+				.map[it.target as VariableDeclaration]
 				.map[it.name]
 				
 		while(chRecvs.hasNext()) {
@@ -304,32 +301,43 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«exp.name» = [None] * «generatePyArithmeticExpression(len, scope, local)»
 					'''
 				} 
-				else {
+				else if(exp.right instanceof DeclarationObject){
+					var type = (exp.right as DeclarationObject).features.get(0).value_s
+					switch (type) {
+						case "DataFrame": {
+							typeSystem.get(scope).put(exp.name, "Table")
+							var path = (exp.right as DeclarationObject).features.get(1).value_s
+							var fileType = (exp.right as DeclarationObject).features.get(2).value_s
+							var sep = (exp.right as DeclarationObject).features.get(3).value_s
+							path = path.replaceAll('"', '');
+							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »https://s3.us-east-2.amazonaws.com/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
+							switch (fileType) {
+								case 'csv': {
+									s += '''
+										«exp.name» = pd.read_csv('«uri»', sep='«sep»')
+									'''	
+								}
+								default:  {
+									s += '''
+										«exp.name» = pd.read_csv('«uri»', sep='«sep»')
+									'''		
+								}
+							}
+						}
+						case "File":{
+							return ''''''
+						}
+						default: {
+							return ''''''
+						}
+					}
+				} else {
 					s += '''
 						«exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression, scope, local)»
 					'''
 				}
 
-			} else if (exp.typeobject.equals("dat")) {
-				typeSystem.get(scope).put(exp.name, "Table")
-				var path = (exp.right as DeclarationObject).features.get(1).value_s
-				var type = (exp.right as DeclarationObject).features.get(2).value_s
-				var sep = (exp.right as DeclarationObject).features.get(3).value_s
-				path = path.replaceAll('"', '');
-				var uri = '''«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) »https://s3.us-east-2.amazonaws.com/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
-				switch (type) {
-					case 'csv': {
-						s += '''
-							«exp.name» = pd.read_csv('«uri»', sep='«sep»')
-						'''	
-					}
-					default:  {
-						s += '''
-							«exp.name» = pd.read_csv('«uri»', sep='«sep»')
-						'''		
-					}
-				}
-			}
+			} 
 		} else if (exp instanceof LocalFunctionCall) {
 			val fc = (exp as LocalFunctionCall)
 			val fd = (fc.target as FunctionDefinition)
@@ -434,7 +442,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment2
 					// And we are on AWS
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as ChannelDeclaration
+					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						// And we are trying to read an integer
 						return '''
@@ -472,7 +480,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { 
 					// And we are on AWS
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as ChannelDeclaration
+					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 					return '''
 					«IF local»
 					«channel.name».readline()
@@ -483,7 +491,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				} else if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
 					get(0).value_s.equals("smp")) {
 					
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as ChannelDeclaration
+					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 					return '''
 					«IF local»
 					«channel.name».readline()
@@ -702,7 +710,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			}
 			return '''math.«exp.feature»(«FOR par : exp.expressions»«generatePyArithmeticExpression(par, scope, local)»«IF !par.equals(exp.expressions.last)», «ENDIF»«ENDFOR»)'''
 		} else if (exp instanceof ChannelReceive) {
-			val channelName = (((exp as ChannelReceive).target) as ChannelDeclaration as VariableDeclaration).name
+			val channelName = (((exp as ChannelReceive).target) as VariableDeclaration).name
 			if (local) {
 				return '''«channelName».readline()'''
 			}
@@ -1075,7 +1083,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		id=$3
 		
 		# delete user queue
-		«FOR res: resource.allContents.toIterable.filter(ChannelDeclaration).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]
+		.filter[((environment.right as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
 			#get «res.name»_${id} queue-url
 			
 			echo "get «res.name»_${id} queue-url"
@@ -1087,7 +1096,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 		«ENDFOR»
 
-		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((environment.right as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
 			#delete lambda function: «res.target.name»_${id}
 			echo "delete lambda function: «res.target.name»_${id}"
 			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}

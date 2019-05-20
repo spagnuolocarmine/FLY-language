@@ -14,7 +14,6 @@ import org.xtext.fLY.ChannelSend
 import org.xtext.fLY.NameObjectDef
 import org.xtext.fLY.ArithmeticExpression
 import org.xtext.fLY.DeclarationObject
-import org.xtext.fLY.DatDeclaration
 import org.xtext.fLY.IfExpression
 import org.xtext.fLY.ForExpression
 import org.xtext.fLY.WhileExpression
@@ -38,10 +37,8 @@ import org.xtext.fLY.VariableFunction
 import org.xtext.fLY.TimeFunction
 import org.xtext.fLY.MathFunction
 import org.xtext.fLY.DatTableObject
-import org.xtext.fLY.EnvironmentDeclaration
 import org.xtext.fLY.RequireExpression
 import org.xtext.fLY.NativeExpression
-import org.xtext.fLY.ChannelDeclaration
 import org.xtext.fLY.FlyFunctionCall
 import org.xtext.fLY.ArrayDefinition
 import org.xtext.fLY.ConstantDeclaration
@@ -49,6 +46,7 @@ import org.xtext.fLY.LocalFunctionCall
 import org.xtext.fLY.ArrayInit
 import org.xtext.fLY.ArrayValue
 import org.eclipse.emf.common.util.EList
+import org.eclipse.xtend.lib.macro.declaration.Declaration
 
 class FLYGeneratorJs extends AbstractGenerator {
 	
@@ -66,7 +64,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 	boolean isAsync;
 	
 	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, 
-		EnvironmentDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local,boolean async){
+		VariableDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local,boolean async){
 		this.name=name_file
 		this.root = func
 		this.typeSystem=scoping
@@ -393,20 +391,29 @@ class FLYGeneratorJs extends AbstractGenerator {
 						}
 						
 					}	
+				} else if(exp.right instanceof DeclarationObject){
+					var type = (exp.right as DeclarationObject).features.get(0).value_s
+					switch (type) {
+						case "DataFrame": {
+							typeSystem.get(scope).put(exp.name, "Table")
+							var path = (exp.right as DeclarationObject).features.get(1).value_s
+							s += '''
+								var __«exp.name» = await __dataframe.fromCSV(«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/«path»" «ELSE»«path»«ENDIF»)
+								var «exp.name» = __«exp.name».toArray()
+							'''
+						}
+						default: {
+							
+						}
+					}
+					
 				} else {
 					s += '''
 						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression,scope)»;
 					'''
 				}
 
-			} else if (exp.typeobject.equals("dat")) {
-				typeSystem.get(scope).put(exp.name, "Table")
-				var path = (exp.right as DeclarationObject).features.get(1).value_s
-				s += '''
-					var __«exp.name» = await __dataframe.fromCSV(«IF (exp as DatDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/«path»" «ELSE»«path»«ENDIF»)
-					var «exp.name» = __«exp.name».toArray()
-				'''
-			}
+			} 
 		} else if (exp instanceof IfExpression) {
 			s += '''
 				if(«generateJsArithmeticExpression(exp.cond,scope)»)
@@ -1033,23 +1040,25 @@ class FLYGeneratorJs extends AbstractGenerator {
 		id=$3
 		
 		# delete user queue
-		«FOR res: resource.allContents.toIterable.filter(ChannelDeclaration).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")] »
-			#get «res.name»_${id} queue-url
-			
-			echo "get «res.name»_${id} queue-url"
-			queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
-			echo ${queue_url//\"}
-			
-			echo "delete queue at url ${queue_url//\"} "
-			aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
-			
+		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
+			«IF (res.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")»
+				#get «res.name»_${id} queue-url
+				
+				echo "get «res.name»_${id} queue-url"
+				queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
+				echo ${queue_url//\"}
+				
+				echo "delete queue at url ${queue_url//\"} "
+				aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+			«ENDIF»
 		«ENDFOR»
 
-		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[(environment.right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-			#delete «res.target.name»_${id} lambda function
-			echo "delete «res.target.name»_${id} lambda function"
-			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
-			
+		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall)»
+			«IF (res.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")»
+				#delete «res.target.name»_${id} lambda function
+				echo "delete «res.target.name»_${id} lambda function"
+				aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+			«ENDIF»
 		«ENDFOR»
 		
 		

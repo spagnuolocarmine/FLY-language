@@ -8,11 +8,9 @@ import org.eclipse.xtext.generator.AbstractGenerator
 import org.eclipse.xtext.generator.IFileSystemAccess2
 import org.eclipse.xtext.generator.IGeneratorContext
 import java.util.HashMap
-import org.xtext.fLY.ChannelDeclaration
 import org.xtext.fLY.FunctionDefinition
 import org.xtext.fLY.Expression
 import org.xtext.fLY.VariableDeclaration
-import org.xtext.fLY.RandomDeclaration
 import org.xtext.fLY.Assignment
 import org.xtext.fLY.PrintExpression
 import org.xtext.fLY.IfExpression
@@ -43,10 +41,8 @@ import org.xtext.fLY.FunctionInput
 import org.xtext.fLY.NameObjectDef
 import org.eclipse.emf.ecore.EObject
 import org.xtext.fLY.Fly
-import org.xtext.fLY.DatDeclaration
 import org.xtext.fLY.VariableFunction
 import org.xtext.fLY.RangeLiteral
-import org.xtext.fLY.EnvironmentDeclaration
 import org.xtext.fLY.DeclarationObject
 import org.xtext.fLY.DeclarationFeature
 import org.xtext.fLY.FlyFunctionCall
@@ -61,6 +57,9 @@ import org.xtext.fLY.ArrayValue
 import org.xtext.fLY.ForIndex
 import org.xtext.fLY.NativeExpression
 import java.util.ArrayList
+import javax.lang.model.type.DeclaredType
+import java.util.List
+import java.util.Arrays
 
 /**
  * Generates code from your model files on save.
@@ -79,6 +78,7 @@ class FLYGenerator extends AbstractGenerator {
 	var id_execution = System.currentTimeMillis
 	var last_func_result = null
 	var deployed_function = new ArrayList<String>();
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","azure"));
 	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
@@ -212,16 +212,13 @@ class FLYGenerator extends AbstractGenerator {
 			static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
 			static HashMap<String,HashMap<String,Integer>> __fly_async_invocation_id = new HashMap<String,HashMap<String,Integer>>();
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
-				«IF element instanceof ChannelDeclaration»
-					«generateChannelDeclaration(element)»	
-					
+				«IF element instanceof VariableDeclaration»
+					«IF element.right instanceof DeclarationObject»
+						«generateVariableDeclaration(element,"main")»
+					«ENDIF»
 				«ENDIF»
 				«IF element instanceof ConstantDeclaration»
 					«generateConstantDeclaration(element,"main")»	
-				«ENDIF»
-				«IF element instanceof EnvironmentDeclaration»
-					«generateEnvironmentDeclaration(element)»
-					
 				«ENDIF»
 			«ENDFOR»
 					
@@ -229,49 +226,45 @@ class FLYGenerator extends AbstractGenerator {
 			
 			public static void main(String[] args) throws Exception{
 								
-				«FOR element : resource.allContents.toIterable.filter(EnvironmentDeclaration)»
+				«FOR element : resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]»
 					«setEnvironmentDeclarationInfo(element)»
 				«ENDFOR»
-				
-				
-				«IF resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud].length > 0»
+				«IF resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
+				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")].length > 0»
 					if(!__s3.doesBucketExist("bucket-"+__id_execution)){
 						__s3.createBucket("bucket-"+__id_execution);
 					}
 				«ENDIF»
-				
-				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
-					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("«resource.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0).name»").get("nthread"));
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
+					&& !((right as DeclarationObject).features.get(0).value_s.equals("smp"))]»
+					ExecutorService __thread_pool_«element.name» = Executors.newFixedThreadPool((int) __fly_environment.get("«resource.allContents.toIterable.filter(VariableDeclaration)
+					.filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
+					&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))].get(0).name»").get("nthread"));
 				«ENDFOR»
-				
-				«FOR element: resource.allContents.toIterable.filter(DatDeclaration).filter[onCloud]»
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
+				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")]»
 						«deployFileOnCloud(element,file_deploy_id++)»
 				«ENDFOR»
-				
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
 				.filter[!(environment.right as DeclarationObject).features.get(0).value_s.equals("smp")]»
 					«deployFlyFunctionOnCloud(element)»
 				«ENDFOR»
-				
-								
 				«FOR element : resource.allContents.toIterable.filter(Expression)»
 					«IF checkBlock(element.eContainer)==false»
 						«generateExpression(element,"main")»
 					«ENDIF»
 				«ENDFOR»
-
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
 				.filter[!(environment.right as DeclarationObject).features.get(0).equals("smp")]»
 					«undeployFlyFunctionOnCloud(element)»
 				«ENDFOR»
-				
-				«FOR element: resource.allContents.toIterable.filter(EnvironmentDeclaration)
-				.filter[!(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
+					&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))]»
 					__thread_pool_«element.name».shutdown();
 				«ENDFOR»
-						
 				System.exit(0);
 			}
 				
@@ -382,14 +375,16 @@ class FLYGenerator extends AbstractGenerator {
 	def generateExpression(Expression element, String scope) {
 		'''
 			«IF element  instanceof VariableDeclaration»
-				«generateVariableDeclaration(element,scope)»
+				«IF element.right instanceof DeclarationObject»
+					«IF ! list_environment.contains((element.right as DeclarationObject).features.get(0).value_s) &&
+					!(element.right as DeclarationObject).features.get(0).value_s.equals("channel")	»
+						«generateVariableDeclaration(element,scope)»
+					«ENDIF»		
+				«ELSE»
+					«generateVariableDeclaration(element,scope)»
+				«ENDIF»
 			«ENDIF»
-			«IF element instanceof DatDeclaration»
-				«generateDatDeclaration(element,scope)»
-			«ENDIF»
-			«IF element instanceof RandomDeclaration»
-				«generateRandomDeclaration(element)»
-			«ENDIF»
+			
 			«IF element instanceof Assignment»
 				«generateAssignment(element,scope)»
 			«ENDIF»
@@ -425,12 +420,6 @@ class FLYGenerator extends AbstractGenerator {
 			«ENDIF»
 			«IF element instanceof VariableFunction»
 				«generateVariableFunction(element,true,scope)»
-			«ENDIF»
-			«IF element instanceof ChannelDeclaration»
-				«generateChanelDeclarationForCloud(element)»
-			«ENDIF»
-			«IF element instanceof ChannelDeclaration»
-				«generateChannelDeclarationForLanguage(element)»
 			«ENDIF»
 			«IF element instanceof SortExpression»
 				«generateSortExpression(element,scope)»
@@ -478,7 +467,90 @@ class FLYGenerator extends AbstractGenerator {
 	// methods for Variable Declaration 
 	def generateVariableDeclaration(VariableDeclaration dec, String scope) {
 		if (dec.typeobject.equals('var')) { // var declaration
-			if (dec.right instanceof NameObjectDef) { // if is a NameObject
+			println(dec)
+			println(dec.right)
+			if (dec.right instanceof DeclarationObject){ 
+				var type = (dec.right as DeclarationObject).features.get(0).value_s
+				switch (type) {
+					case "smp": {
+						return '''
+							static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
+							'''
+					}
+					case "aws": {
+						var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+						var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+						var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+						return '''
+							
+							static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
+							
+							static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withRegion("«region»")
+								.build();
+							
+							static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withRegion("«region»")
+								.build();
+								
+							static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withRegion("«region»")
+								.build();
+								
+							static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withRegion("«region»")
+								.build();
+						'''
+					}
+					case "azure":{
+						return ''''''
+					}
+					case "random":{
+						return '''
+							Random «dec.name» = new Random();
+							'''
+					}
+					case "channel":{
+						var env = (dec.environment.right as DeclarationObject).features.get(0).value_s
+						return '''
+							static LinkedTransferQueue<Object> «dec.name» = new LinkedTransferQueue<Object>();
+							«IF ! env.equals("smp")»
+								static Boolean __wait_on_«dec.name» = true;
+							«ENDIF»
+							«IF (dec.environment.right as DeclarationObject).features.length == 3 »
+								static ServerSocket __socket_server_«dec.name»;
+							«ENDIF»
+						'''
+					}
+					case "File":{
+						var path = (dec.right as DeclarationObject).features.get(1).value_s
+						typeSystem.get(scope).put(dec.name, "File")
+						return '''
+							File «dec.name» = new File("«path»");
+						'''
+					}
+					case "Dataframe":{
+							var path = (dec.right as DeclarationObject).features.get(1).value_s
+				
+								typeSystem.get(scope).put(dec.name, "Table")
+							return '''
+								Table «dec.name» = Table.read().csv(CsvReadOptions
+									.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
+									.maxNumberOfColumns(5000)
+									.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
+									.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
+								);
+							'''
+					}
+					default: {
+						return ''''''
+					}
+				}
+			} else if (dec.right instanceof NameObjectDef) { 
 				typeSystem.get(scope).put(dec.name, "HashMap")
 				var s = '''HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
 				'''
@@ -815,11 +887,15 @@ class FLYGenerator extends AbstractGenerator {
 	}
 		
 	
-	def deployFileOnCloud(DatDeclaration dec,long id) {
+	def deployFileOnCloud(VariableDeclaration dec,long id) {
 			var path = (dec.right as DeclarationObject).features.get(1).value_s
+			var env = dec.environment.name;
 			if( ! path.contains("https://")){ // local 
-					var name_file_ext = path.split("/").last
-					var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
+				var name_file_ext = path.split("/").last
+				var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
+				switch (env) {
+				case "aws": {
+					
 					return '''
 						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
 						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
@@ -836,51 +912,54 @@ class FLYGenerator extends AbstractGenerator {
 							__s3.putObject(__putObjectRequest);
 						}
 					'''
-			} 
-
+				}
+				default: {
+					return ''''''
+				}
+			}
 		}
+	}	
+
+
+//	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
+//		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
+//		if (env.equals("smp")){
+//			return '''
+//				static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
+//			'''
+//		}
+//		else if (env.equals("aws")) {
+//			var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+//			var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+//			var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+//			return '''
+//				
+//				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
+//				
+//				static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
+//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+//					.withRegion("«region»")
+//					.build();
+//				
+//				static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
+//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+//					.withRegion("«region»")
+//					.build();
+//					
+//				static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
+//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+//					.withRegion("«region»")
+//					.build();
+//					
+//				static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
+//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+//					.withRegion("«region»")
+//					.build();
+//			'''
+//		}
+//	}
 	
-
-
-	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
-		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-		if (env.equals("smp")){
-			return '''
-				static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
-			'''
-		}
-		else if (env.equals("aws")) {
-			var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
-			var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
-			var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
-			return '''
-				
-				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
-				
-				static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
-					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-					.withRegion("«region»")
-					.build();
-				
-				static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
-					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-					.withRegion("«region»")
-					.build();
-					
-				static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
-					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-					.withRegion("«region»")
-					.build();
-					
-				static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
-					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-					.withRegion("«region»")
-					.build();
-			'''
-		}
-	}
-	
-	def setEnvironmentDeclarationInfo(EnvironmentDeclaration dec){
+	def setEnvironmentDeclarationInfo(VariableDeclaration dec){
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
 		var dec_name = dec.name
 		if (env.equals("smp")){
@@ -909,35 +988,35 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 
-	def generateChannelDeclaration(ChannelDeclaration declaration) { 
-			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
-			return '''
-				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
-				«IF ! env.equals("smp")»
-					static Boolean __wait_on_«declaration.name» = true;
-				«ENDIF»
-				«IF (declaration.environment.right as DeclarationObject).features.length == 3 »
-					static ServerSocket __socket_server_«declaration.name»;
-				«ENDIF»
-			'''
-	}
+//	def generateChannelDeclaration(ChannelDeclaration declaration) { 
+//			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
+//			return '''
+//				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
+//				«IF ! env.equals("smp")»
+//					static Boolean __wait_on_«declaration.name» = true;
+//				«ENDIF»
+//				«IF (declaration.environment.right as DeclarationObject).features.length == 3 »
+//					static ServerSocket __socket_server_«declaration.name»;
+//				«ENDIF»
+//			'''
+//	}
 	
-	def generateChannelDeclarationForLanguage(ChannelDeclaration declaration){
-		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		if(env.equals("smp") && (declaration.environment.right as DeclarationObject).features.length==3){
+	def generateChannelDeclarationForLanguage(VariableDeclaration dec){
+		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
+		if(env.equals("smp") && (dec.environment.right as DeclarationObject).features.length==3){
 			return '''
-				__socket_server_«declaration.name»= new ServerSocket(9090);
-				__thread_pool_«declaration.environment.name».submit(new Runnable() {
+				__socket_server_«dec.name»= new ServerSocket(9090);
+				__thread_pool_«dec.environment.name».submit(new Runnable() {
 							
 					public void run() {
 						try {
 							while(true) {
-				                Socket __socket = __socket_server_«declaration.name».accept();
+				                Socket __socket = __socket_server_«dec.name».accept();
 				                InputStreamReader __isr = new InputStreamReader(__socket.getInputStream());
 				                BufferedReader __br = new BufferedReader(__isr);
 				                String __response = __br.readLine();
 				                __socket.close();
-							    «declaration.name».put(__response);
+							    «dec.name».put(__response);
 							}
 						}catch (Exception e) {
 							
@@ -949,25 +1028,24 @@ class FLYGenerator extends AbstractGenerator {
 		return ''''''
 	}
 
-	def generateChanelDeclarationForCloud(ChannelDeclaration declaration) { // create a queue on AWS
-		var env = ((declaration.environment.right as DeclarationObject).features.get(0)).value_s
-		var local = ( res.allContents.toIterable.filter(EnvironmentDeclaration)
-		.filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0) as EnvironmentDeclaration).name
+	def generateChanelDeclarationForCloud(VariableDeclaration dec) { // create a queue on AWS
+		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
+		var local = res.allContents.toIterable.filter(VariableDeclaration).filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0).name
 		if (env.equals("aws")) {
 			return '''
-				__sqs_«declaration.environment.name».createQueue(new CreateQueueRequest("«declaration.name»_"+__id_execution));
+				__sqs_«dec.environment.name».createQueue(new CreateQueueRequest("«dec.name»_"+__id_execution));
 				
 				//for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 					__thread_pool_«local».submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
-							while(__wait_on_«declaration.name») {
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«declaration.environment.name».getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl()).
+							while(__wait_on_«dec.name») {
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«dec.environment.name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl()).
 										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
-								ReceiveMessageResult __res = __sqs_«declaration.environment.name».receiveMessage(__recmsg);
+								ReceiveMessageResult __res = __sqs_«dec.environment.name».receiveMessage(__recmsg);
 								for(Message msg : __res.getMessages()) { 
-									«declaration.name».put(msg.getBody());
-									__sqs_«declaration.environment.name».deleteMessage(__sqs_«declaration.environment.name».getQueueUrl("«declaration.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+									«dec.name».put(msg.getBody());
+									__sqs_«dec.environment.name».deleteMessage(__sqs_«dec.environment.name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
 								}
 							}
 							return null;
@@ -978,41 +1056,39 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 
-	def generateDatDeclaration(DatDeclaration dec, String scope) {
-		
-		if (dec.right instanceof DeclarationObject) {
-			var type = (dec.right as DeclarationObject).features.get(2).value_s
-			var path = (dec.right as DeclarationObject).features.get(1).value_s
-			println("type: "+type)
-			if(type.equals("txt")){
-				typeSystem.get(scope).put(dec.name, "File")
-				println(typeSystem.get(scope))	
-				return '''
-					File «dec.name» = new File("«path»");
-				'''
-			}else if(type.equals("csv")){
-				typeSystem.get(scope).put(dec.name, "Table")
-			return '''
-				Table «dec.name» = Table.read().csv(CsvReadOptions
-					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
-					.maxNumberOfColumns(5000)
-					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
-					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
-				);
-			'''
-			}
-			
-		} else {
-			typeSystem.get(scope).put(dec.name,valuateArithmeticExpression(dec.right as ArithmeticExpression,scope))	
-			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
-		}
-	}
+//	def generateDatDeclaration(DatDeclaration dec, String scope) {
+//		
+//		if (dec.right instanceof DeclarationObject) {
+//			var type = (dec.right as DeclarationObject).features.get(2).value_s
+//			var path = (dec.right as DeclarationObject).features.get(1).value_s
+//			if(type.equals("txt")){
+//				typeSystem.get(scope).put(dec.name, "File")
+//				return '''
+//					File «dec.name» = new File("«path»");
+//				'''
+//			}else if(type.equals("csv")){
+//				typeSystem.get(scope).put(dec.name, "Table")
+//			return '''
+//				Table «dec.name» = Table.read().csv(CsvReadOptions
+//					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
+//					.maxNumberOfColumns(5000)
+//					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
+//					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
+//				);
+//			'''
+//			}
+//			
+//		} else {
+//			typeSystem.get(scope).put(dec.name,valuateArithmeticExpression(dec.right as ArithmeticExpression,scope))	
+//			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
+//		}
+//	}
 
-	def generateRandomDeclaration(RandomDeclaration declaration) {
-		return '''
-			Random «declaration.name» = new Random();
-		'''
-	}
+//	def generateRandomDeclaration(RandomDeclaration declaration) {
+//		return '''
+//			Random «declaration.name» = new Random();
+//		'''
+//	}
 
 	// methods for ArithmeticExpression
 	def generateArithmeticExpression(ArithmeticExpression expression, String scope) {
@@ -1039,8 +1115,9 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
-			if(expression.name instanceof EnvironmentDeclaration){
-				return '''__fly_environment.get(«expression.name.name»).get("«expression.value»")'''
+			if(expression.name instanceof VariableDeclaration){
+				if(list_environment.contains((expression.name.right as DeclarationObject).features.get(0).value_s))
+					return '''__fly_environment.get(«expression.name.name»).get("«expression.value»")'''
 			}
 			else if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
 				return '''(«typeSystem.get(scope).get(expression.name.name+"."+expression.value)») «expression.name.name».get("«expression.value»")'''
@@ -1085,9 +1162,9 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof CastExpression) {
 			if (expression.op.equals("as")) { // cast
 				if (expression.target instanceof ChannelReceive) {
-					if ((((expression.target as ChannelReceive).target.environment as EnvironmentDeclaration).
+					if ((((expression.target as ChannelReceive).target.environment as VariableDeclaration).
 						right as DeclarationObject).features.get(0).value_s.equals("aws")) {
-						var env_name = ((expression.target as ChannelReceive).target.environment as EnvironmentDeclaration).name
+						var env_name = ((expression.target as ChannelReceive).target.environment as VariableDeclaration).name
 						if (expression.type.equals("Integer")) {
 							return '''
 								__
@@ -1243,10 +1320,10 @@ class FLYGenerator extends AbstractGenerator {
 							 	}
 			'''
 			}else if(expression.feature.equals("delete")){
-				var path = ((expression.target as DatDeclaration).right as DeclarationObject).features.get(1).value_s;
+				var path = ((expression.target as VariableDeclaration).right as DeclarationObject).features.get(1).value_s;
 				var filename = path.split("/").last 
 				return '''
-					«IF (expression.target as DatDeclaration).onCloud»
+					«IF (expression.target as VariableDeclaration).onCloud»
 						try {
 						    s3.deleteObject("bucket-"+__id_execution), «filename»);
 						} catch (AmazonServiceException e) {
@@ -1259,12 +1336,12 @@ class FLYGenerator extends AbstractGenerator {
 			
 		}else if(expression.target.typeobject.equals("channel")){
 			if(expression.feature.equals("close")){
-				println(((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0))
+				//println(((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0))
 				return '''
-					«IF !((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
+					«IF !((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
 						__wait_on_«expression.target.name» = false;
-					«ELSEIF ((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
-					((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.length==3»
+					«ELSEIF ((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
+					((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.length==3»
 						__socket_server_«expression.target.name».close();
 					«ENDIF»
 				'''
@@ -1783,10 +1860,10 @@ class FLYGenerator extends AbstractGenerator {
 		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
 			value_s
 		if (env.equals("smp")) {
-			return '''«(receive.target as ChannelDeclaration).name».take()'''
+			return '''«(receive.target as VariableDeclaration).name».take()'''
 		} else if (env.equals("aws")) {
 			return '''
-			«(receive.target as ChannelDeclaration).name».take()'''
+			«(receive.target as VariableDeclaration).name».take()'''
 		}
 
 	}
@@ -1795,7 +1872,7 @@ class FLYGenerator extends AbstractGenerator {
 		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
 		var env_name = send.target.environment.name
 		if (env.equals("smp")) {
-			return '''«(send.target as ChannelDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
+			return '''«(send.target as VariableDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 		} else if (env.equals("aws")) {
 			return '''
 				__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));
@@ -2209,7 +2286,9 @@ class FLYGenerator extends AbstractGenerator {
 			} else if (variable.typeobject.equals("channel")) {
 				return "Channel"
 			} else if (variable.typeobject.equals("var")) {
-				if (variable.right instanceof NameObjectDef) {
+				if (variable.right instanceof DeclarationObject) {
+					
+				} else if (variable.right instanceof NameObjectDef) {
 					return "HashMap"
 				} else if (variable.right instanceof ArithmeticExpression) {
 					return valuateArithmeticExpression(variable.right as ArithmeticExpression, scope)

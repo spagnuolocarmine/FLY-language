@@ -81,13 +81,13 @@ BlockExpression:
 ;
 
 VariableDeclaration:
-	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall))											|
-	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 																				|
-	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=DeclarationObject) (onCloud?='on' environment=[EnvironmentDeclaration])? )		|
-	{RandomDeclaration} typeobject='random' =>(name = ID) 																												|
-	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)																							|
-	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)																					|
-	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])																	|
+	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall | right=DeclarationObject)) (onCloud?='on' environment=[VariableDeclaration])? |
+//	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 																				|
+//	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=DeclarationObject) (onCloud?='on' environment=[EnvironmentDeclaration])? )		|
+//	{RandomDeclaration} typeobject='random' =>(name = ID) 																												|
+//	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)																							|
+//	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)																					|
+//	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])																	|
 	{ConstantDeclaration} typeobject='const' =>(name = ID '='  (right=ArithmeticExpression | right=Object ))															
 ;
 
@@ -122,8 +122,8 @@ FeautureName:
 ObjectLiteral:
 	{NameObject} name=[VariableDeclaration] "." value=ID																						| 
 	{IndexObject} name=[VariableDeclaration] indexes+=SubIndex (indexes+=SubIndex)*																	| 
-	{DatSingleObject} name=[DatDeclaration] "["(value1=(NumberLiteral | StringLiteral)) "," (value2=(NumberLiteral|StringLiteral)) "]"			|
-	{DatTableObject} name=[DatDeclaration] "[" (range1=RangeLiteral | range1_t=NumberLiteral) "," (range2=RangeLiteral) "]"
+	{DatSingleObject} name=[VariableDeclaration] "["(value1=(NumberLiteral | StringLiteral)) "," (value2=(NumberLiteral|StringLiteral)) "]"			|
+	{DatTableObject} name=[VariableDeclaration] "[" (range1=RangeLiteral | range1_t=NumberLiteral) "," (range2=RangeLiteral) "]"
 ;
 
 SubIndex:
@@ -156,11 +156,11 @@ Params returns Expression:
 
 ChannelSend:
 	{ChannelSend}
-	target=[ChannelDeclaration] '!' expression=ArithmeticExpression 
+	target=[VariableDeclaration] '!' expression=ArithmeticExpression 
 ;
 
 ChannelReceive:
-	{ChannelReceive} target=[ChannelDeclaration]'?'
+	{ChannelReceive} target=[VariableDeclaration]'?'
 ;
 
 
@@ -174,7 +174,7 @@ LocalFunctionInput:
 
 FlyFunctionCall:
 	{FlyFunctionCall} (isAsync?='async')? 'fly' target=[FunctionDefinition]  
-	input=FunctionInput? 'on' environment=[EnvironmentDeclaration] (is_then?='then' then=[FunctionDefinition])? (is_thenall?='thenall' thenall=[FunctionDefinition])? 
+	input=FunctionInput? 'on' environment=[VariableDeclaration] (is_then?='then' then=[FunctionDefinition])? (is_thenall?='thenall' thenall=[FunctionDefinition])? 
 ;
 
 FunctionInput:
@@ -187,7 +187,7 @@ NativeExpression:
 ;
 
 RequireExpression:
-	{RequireExpression} 'require' '(' lib = STRING ')' 'on' environment=[EnvironmentDeclaration]
+	{RequireExpression} 'require' '(' lib = STRING ')' 'on' environment=[VariableDeclaration]
 ;
 
 PostfixOperation:
