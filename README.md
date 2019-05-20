@@ -1,7 +1,11 @@
 
-Gitter chat: [![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+|Resources| |
+|:-----------------:|:-:|
+|  Gitter chat 		| [![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)  |
+|  Building status 	| [![Build Status](https://travis-ci.org/spagnuolocarmine/FLY-language.svg?branch=master)](https://travis-ci.org/spagnuolocarmine/FLY-language) |
+|  Coverage status 	| [![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)  |
+|  Documentation    | [https://spagnuolocarmine.github.io/FLY-language/](https://spagnuolocarmine.github.io/FLY-language/) |
 
-Building status: [![Build Status](https://travis-ci.org/spagnuolocarmine/FLY-language.svg?branch=master)](https://travis-ci.org/spagnuolocarmine/FLY-language) Code Coverage: [![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)
 
 # FLY a Domain Specific Language for scientific computing on the Multi Cloud 
 
@@ -33,17 +37,19 @@ FLY is compiled in native code (Java code) and it is able to automatically explo
 
 ## Standalone FLY compiler
 
-Download the tar.gz (aggiungere indirizzo al file nella sezione release)
+Download the tar.gz at the following link:  
 
-Untar the __compiler.tar__ 
+
+Unpack the __fly-compiler-ALPHA-01.tar.gz__ 
 ```
+tar -xvzf fly-compiler-ALPHA-01.tar.gz
 ```
 
 To compile and run a .fly program:
 ```
 cd <path-to-compiler> 
 
-./fly-cc.sh <name-example>.fly
+./fly-cc <name-example>.fly
 ```
 
 
