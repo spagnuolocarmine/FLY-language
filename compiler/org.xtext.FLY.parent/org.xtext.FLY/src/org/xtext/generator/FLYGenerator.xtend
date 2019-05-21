@@ -2281,22 +2281,35 @@ class FLYGenerator extends AbstractGenerator {
 			return "Double"
 		} else if (exp instanceof VariableLiteral) {
 			val variable = exp.variable
-			if (variable.typeobject.equals("dat")) {
-				return "Table"
-			} else if (variable.typeobject.equals("channel")) {
-				return "Channel"
-			} else if (variable.typeobject.equals("var")) {
-				if (variable.right instanceof DeclarationObject) {
-					
-				} else if (variable.right instanceof NameObjectDef) {
-					return "HashMap"
-				} else if (variable.right instanceof ArithmeticExpression) {
-					return valuateArithmeticExpression(variable.right as ArithmeticExpression, scope)
-				}else{
-					return typeSystem.get(scope).get(variable.name) // if it's a parameter of a FunctionDefinition
+		if (variable.typeobject.equals("var")) {
+			if (variable.right instanceof DeclarationObject) {
+				var type = (variable.right as DeclarationObject).features.get(0).value_s
+				switch (type) {
+					case "DataFrame": {
+						return "Table"
+					}
+					case "channel":{
+						return "channel"
+					}
+					case "random":{
+						return "Random"
+					}
+					case "File":{
+						return "File"
+					}
+					default: {
+						return "variable"
+					}
 				}
+			} else if (variable.right instanceof NameObjectDef) {
+				return "HashMap"
+			} else if (variable.right instanceof ArithmeticExpression) {
+				return valuateArithmeticExpression(variable.right as ArithmeticExpression, scope)
+			}else{
+				return typeSystem.get(scope).get(variable.name) // if it's a parameter of a FunctionDefinition
 			}
-			return "variable"
+		}
+		return "variable"
 		} else if (exp instanceof NameObject) {
 			return typeSystem.get(scope).get(exp.name.name + "." + exp.value)
 		} else if (exp instanceof IndexObject) {
@@ -2378,7 +2391,18 @@ class FLYGenerator extends AbstractGenerator {
 			return "Long"
 		}else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("var")) {
-				if (exp.feature.equals("split")) {
+				if (exp.target.right instanceof DeclarationObject){
+					var type = (exp.target.right as DeclarationObject).features.get(0).value_s
+					if (type.equals("random")){
+						if (exp.feature.equals("nextBoolean")) {
+							return "Boolean"
+						} else if (exp.feature.equals("nextDouble")) {
+							return "Double"
+						} else if (exp.feature.equals("nextInt")) {
+							return "Integer"
+						}
+					}
+				} else if (exp.feature.equals("split")) {
 					return "HashMap"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
@@ -2389,14 +2413,6 @@ class FLYGenerator extends AbstractGenerator {
 					return "char"
 				}else {
 					return "Boolean"
-				}
-			} else if (exp.target.typeobject.equals("random")) {
-				if (exp.feature.equals("nextBoolean")) {
-					return "Boolean"
-				} else if (exp.feature.equals("nextDouble")) {
-					return "Double"
-				} else if (exp.feature.equals("nextInt")) {
-					return "Integer"
 				}
 			}
 		} else {
