@@ -1,21 +1,20 @@
-dat test_set = [name:"test",path:"20NG-test.csv",type:"csv",sep:","]
-//env aws = [type:"aws",access_key:"YOUR-KEY",secret_key:"YOUR-SECRET-KEY",region:"us-east-2"]   
-env local = [type:"local"] 
+var local = [type="smp", nthread=4]
+var test_set = [type="Dataframe",name="test",path="20NG-test.csv",sep=","]
  
-channel result on local /*aws*/                
+var result = [type="channel"] on local              
 var c = time()     
- 
+  
 func knn(test){     
 	var t = time()
-	dat train_set = [name:"train",path:"20NG-train.csv",type:"csv",sep:","]   
+	var train_set = [type="Dataframe",name="train",path="20NG-train.csv",sep=","]   
 	println "loading time "+time(t)  
 	var k = 3
-	var res = []
+	var res = {}
 	var t_res=0 
 	for p1 in test {  
 		var cnt=0    
-		var distances=[]    
-		var neighbors = []   
+		var distances={}    
+		var neighbors = {}   
 
 		for p2 in train_set { 
 			var sum = 0.0
@@ -33,7 +32,7 @@ func knn(test){
 				for d in distances{  
 					if(d.v as Double > max){ 
 						max=d.v as Double  
-						i_max=d.k as Integer
+						i_max=d.k as Integer 
 					}
 				}
 				if(max > dist_eucl){
@@ -44,9 +43,9 @@ func knn(test){
 			} 
 		}   
 		var class1=0
-		var class2=0 
+		var class2=0  
 		for p in neighbors{
-			var neigh_class = p.v as Integer
+			var neigh_class = p.v as Integer 
 			if (neigh_class == 0) 
 				class1+=1
 			else  
@@ -74,8 +73,8 @@ func estimate (){
 	var totmess = 4 /*function  for aws is 1000*/ 
 	for i in [0:4]{
 		var res = result? as Object
-		for j in res{
-			correct+=j.v parse Integer    
+		for j in res{ 
+			correct+=j.v as Integer 
 			nmess+=1
 			println "RCV " + nmess +"/"+totmess +" correct "+ correct  
 		}
@@ -84,5 +83,5 @@ func estimate (){
 }
 
 
-fly knn in test_set on local /*aws*/ thenall estimate     
+fly knn in test_set on local thenall estimate     
 println "elapsed " + (time(c))
