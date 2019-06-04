@@ -204,8 +204,7 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.S3ObjectSummary;
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
-		
-		
+		«»
 		
 		public class «name» {
 			
@@ -213,7 +212,8 @@ class FLYGenerator extends AbstractGenerator {
 			static HashMap<String,HashMap<String,Integer>> __fly_async_invocation_id = new HashMap<String,HashMap<String,Integer>>();
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof VariableDeclaration»
-					«IF element.right instanceof DeclarationObject»
+					«IF element.right instanceof DeclarationObject 
+						&& ( (element.right as DeclarationObject).features.get(0).value_s.equals("channel") || list_environment.contains((element.right as DeclarationObject).features.get(0).value_s) )»
 						«generateVariableDeclaration(element,"main")»
 					«ENDIF»
 				«ENDIF»
@@ -534,14 +534,14 @@ class FLYGenerator extends AbstractGenerator {
 						'''
 					}
 					case "Dataframe":{
-							var path = (dec.right as DeclarationObject).features.get(1).value_s
+							var path = (dec.right as DeclarationObject).features.get(2).value_s
 				
 								typeSystem.get(scope).put(dec.name, "Table")
 							return '''
 								Table «dec.name» = Table.read().csv(CsvReadOptions
 									.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
 									.maxNumberOfColumns(5000)
-									.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
+									.tableName("«(dec.right as DeclarationObject).features.get(1).value_s»")
 									.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
 								);
 							'''
@@ -1115,8 +1115,7 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
-			if(expression.name instanceof VariableDeclaration){
-				if(list_environment.contains((expression.name.right as DeclarationObject).features.get(0).value_s))
+			if(expression.name instanceof VariableDeclaration && expression.name.right!=null && list_environment.contains((expression.name.right as DeclarationObject).features.get(0).value_s)){
 					return '''__fly_environment.get(«expression.name.name»).get("«expression.value»")'''
 			}
 			else if (typeSystem.get(scope).get(expression.name.name + "." + expression.value) !== null) {
@@ -2285,7 +2284,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (variable.right instanceof DeclarationObject) {
 				var type = (variable.right as DeclarationObject).features.get(0).value_s
 				switch (type) {
-					case "DataFrame": {
+					case "Dataframe": {
 						return "Table"
 					}
 					case "channel":{

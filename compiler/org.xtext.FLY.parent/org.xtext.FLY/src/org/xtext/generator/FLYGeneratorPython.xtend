@@ -1083,8 +1083,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		id=$3
 		
 		# delete user queue
-		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]
-		.filter[((environment.right as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
+		.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
 			#get «res.name»_${id} queue-url
 			
 			echo "get «res.name»_${id} queue-url"
@@ -1096,7 +1096,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 		«ENDFOR»
 
-		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((environment.right as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
 			#delete lambda function: «res.target.name»_${id}
 			echo "delete lambda function: «res.target.name»_${id}"
 			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
