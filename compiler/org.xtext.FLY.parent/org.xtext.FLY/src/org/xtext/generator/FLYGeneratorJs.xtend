@@ -402,6 +402,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 								var «exp.name» = __«exp.name».toArray()
 							'''
 						}
+						
 						default: {
 							
 						}
