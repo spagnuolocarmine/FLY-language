@@ -1,0 +1,23 @@
+- title: Introduction
+  docs:
+    - home
+- title: Getting Started
+  docs:
+    - getting_started/installation
+- title: Programming a Pi greco estimation
+  docs:
+    - example/pi_estimation
+
+- title: Common programming concept
+  docs:
+  - common/data_types
+  - common/control_structure
+  - common/execution_control_structure
+
+- title: FLY Parallel Execution 
+  docs:
+    - parallel/fly_parallel_execution
+
+- title: Examples
+  docs:
+    - example/knn

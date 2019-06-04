@@ -1,0 +1,81 @@
+[
+
+  
+    
+    
+    {
+      "title": "FLY Language",
+      "url": "/fly-language-doc/docs/home/"
+
+    },
+  
+
+  
+    
+    
+    {
+      "title": "Installation",
+      "url": "/fly-language-doc/docs/getting_started/installation/"
+
+    },
+  
+
+  
+    
+    
+    {
+      "title": "PI Estimation",
+      "url": "/fly-language-doc/docs/example/pi_estimation/"
+
+    },
+  
+
+  
+    
+    
+    {
+      "title": "Data types",
+      "url": "/fly-language-doc/docs/common/data_types/"
+
+    },
+  
+    
+    
+    {
+      "title": "Control structure",
+      "url": "/fly-language-doc/docs/common/control_structure/"
+
+    },
+  
+    
+    
+    {
+      "title": "Execution control structure",
+      "url": "/fly-language-doc/docs/common/execution_control_structure/"
+
+    },
+  
+
+  
+    
+    
+    {
+      "title": "FLY parallel execution",
+      "url": "/fly-language-doc/docs/parallel/fly_parallel_execution/"
+
+    },
+  
+
+  
+    
+    
+    {
+      "title": "K Nearest Neighbor",
+      "url": "/fly-language-doc/docs/example/knn/"
+
+    },
+  
+
+
+  
+]
