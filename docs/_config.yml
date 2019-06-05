@@ -23,6 +23,8 @@ description              : "Ph.D. Computer Science."
 url                      : "https://spagnuolocarmine.github.io" # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
 baseurl                  : "/" # the subpath of your site, e.g. "/blog"
 repository               : "spagnuolocarmine/spagnuolocarmine.github.io" # GitHub username/repo-name e.g. "mmistakes/minimal-mistakes"
+git_address              : https://github.com/aksakalli/jekyll-doc-theme
+git_edit_address         : https://github.com/aksakalli/jekyll-doc-theme/blob/gh-pages
 teaser                   : # path of fallback teaser image, e.g. "/assets/images/500x300.png"
 logo                     : 
 masthead_title           : # overrides the website title displayed in the masthead, use " " for no title
