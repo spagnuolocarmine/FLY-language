@@ -16,14 +16,13 @@ minimal_mistakes_skin    : "default" # "air", "aqua", "contrast", "dark", "dirt"
 
 # Site Settings
 locale                   : "en-US"
-title                    : "FLY Language documentation"
-name                     : #"Carmine Spagnuolo"
-description              : #"Ph.D. Computer Science."
+title                    : "FLY Language"
+description              : "Documentation"
 url                      : "https://spagnuolocarmine.github.io" # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
 baseurl                  : "/fly-language-documentation" # the subpath of your site, e.g. "/blog"
-repository               : "spagnuolocarmine/spagnuolocarmine.github.io" # GitHub username/repo-name e.g. "mmistakes/minimal-mistakes"
-git_address              : #https://github.com/aksakalli/jekyll-doc-theme
-git_edit_address         : #https://github.com/aksakalli/jekyll-doc-theme/blob/gh-pages
+repository               : "spagnuolocarmine/FLY-Language" # GitHub username/repo-name e.g. "mmistakes/minimal-mistakes"
+git_address              : # https://github.com/aksakalli/jekyll-doc-theme
+git_edit_address         : # https://github.com/aksakalli/jekyll-doc-theme/blob/gh-pages
 teaser                   : # path of fallback teaser image, e.g. "/assets/images/500x300.png"
 logo                     : 
 # breadcrumbs            : false # true, false (default)
