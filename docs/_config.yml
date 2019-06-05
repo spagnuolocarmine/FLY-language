@@ -104,54 +104,6 @@ analytics:
     anonymize_ip         : # true, false (default)
 
 
-# # Site Author
-# author:
-#   name             : "Carmine Spagnuolo"
-#   bio              : "Ph.D. Computer Science."
-#   location         : "University of Salerno, Italy"
-#   email            :
-#   links:
-#     - label: "Email"
-#       icon: "fas fa-fw fa-envelope-square"
-#       url: mailto:spagnuolocarmine@gmail.com
-#     - label: "Website"
-#       icon: "fas fa-fw fa-link"
-#     - label: "LinkedIn"
-#       icon: "fab fa-fw fa-linkedin"
-#       url: "https://www.linkedin.com/in/carmine-spagnuolo-62785b75/"
-#       # url: "https://your-website.com"
-#     - label: "GitHub"
-#       icon: "fab fa-fw fa-github"
-#       url: "https://github.com/spagnuolocarmine"
-#     - label: "Instagram"
-#       icon: "fab fa-fw fa-instagram"
-#       url: "https://instagram.com/spagnuolocarmine"
-#     - label: "Facebook"
-#       icon: "fab fa-fw fa-facebook-square"
-#       url: "https://facebook.com/spagnuolocarmine"
-
-# # Site Footer
-# footer:
-#   links:
-#     - label: "Email"
-#       icon: "fas fa-fw fa-envelope-square"
-#       url: mailto:spagnuolocarmine@gmail.com
-#     - label: "Website"
-#       icon: "fas fa-fw fa-link"
-#       # url: "https://your-website.com"
-#     - label: "LinkedIn"
-#       icon: "fab fa-fw fa-linkedin"
-#       url: "https://www.linkedin.com/in/carmine-spagnuolo-62785b75/"
-#     - label: "GitHub"
-#       icon: "fab fa-fw fa-github"
-#       url: "https://github.com/spagnuolocarmine"
-#     - label: "Instagram"
-#       icon: "fab fa-fw fa-instagram"
-#       url: "https://instagram.com/spagnuolocarmine"
-#     - label: "Facebook"
-#       icon: "fab fa-fw fa-facebook-square"
-#       url: "https://facebook.com/spagnuolocarmine"
-
 
 # Reading Files
 include:
