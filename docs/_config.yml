@@ -18,8 +18,8 @@
 locale                   : "en-US"
 title                    : "FLY Language"
 description              : "Documentation"
-url                      : "https://spagnuolocarmine.github.io" # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
-baseurl                  : "/" # the subpath of your site, e.g. "/blog"
+url                      : "https://spagnuolocarmine.github.io/FLY-Language" # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
+baseurl                  : "/documentation" # the subpath of your site, e.g. "/blog"
 repository               : "spagnuolocarmine/FLY-Language" # GitHub username/repo-name e.g. "mmistakes/minimal-mistakes"
 git_address              : https://github.com/spagnuolocarmine/FLY-language
 git_edit_address         : # https://github.com/aksakalli/jekyll-doc-theme/blob/gh-pages
