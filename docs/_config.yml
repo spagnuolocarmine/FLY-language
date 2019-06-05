@@ -157,7 +157,7 @@ tag_archive:
 #     tag: /tags/:name/
 
 
-include: ["_pages"]
+#include: ["_pages"]
 
 # HTML Compression
 # - http://jch.penibelst.de/
@@ -171,7 +171,7 @@ compress_html:
 defaults:
   # _posts
   - scope:
-      path: ""
+      path: _posts
       type: posts
     values:
       layout: single
@@ -179,4 +179,21 @@ defaults:
       read_time: true
       comments: # true
       share: true
-      related: true
+      related: truei
+
+  - scope:
+    path: _docs
+    type: docs
+  values:
+    layout: docs
+    sectionid: docs
+    seo:
+      type: "WebPage"
+
+collections:
+  docs:
+    permalink: /:collection/:path/
+    output: true
+  posts:
+    permalink: /blog/:year/:month/:day/:title/
+    output: true
