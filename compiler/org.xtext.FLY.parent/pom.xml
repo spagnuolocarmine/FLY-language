@@ -37,7 +37,6 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.3</version>
  
- 
                 <executions>
                     <!-- Prepares the property pointing to the JaCoCo runtime agent which 
                         is passed as VM argument when Maven the Surefire plugin is executed. -->
@@ -81,6 +80,7 @@
 			    <version>4.3.0</version>
 			    <configuration>
 			    	<jacocoReports>
+			    		<repoToken>yourcoverallsprojectrepositorytoken</repoToken>
             			<jacocoReport>${project.basedir}/org.xtext.FLY.tests/target/site/jacoco-ut/jacoco.xml</jacocoReport>
         			</jacocoReports>
 			    </configuration>
