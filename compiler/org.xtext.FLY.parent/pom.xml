@@ -80,10 +80,16 @@
 			    <version>4.3.0</version>
 			    <configuration>
 			    	<jacocoReports>
-			    		<repoToken>yourcoverallsprojectrepositorytoken</repoToken>
             			<jacocoReport>${project.basedir}/org.xtext.FLY.tests/target/site/jacoco-ut/jacoco.xml</jacocoReport>
         			</jacocoReports>
 			    </configuration>
+			    <dependencies>
+			    	<dependency>
+					    <groupId>javax.xml.bind</groupId>
+					    <artifactId>jaxb-api</artifactId>
+					    <version>2.2.3</version>
+					</dependency>
+			    </dependencies>
 			</plugin>
 			
 			<plugin>
