@@ -100,9 +100,17 @@ class FLYGenerator extends AbstractGenerator {
 					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 				}	
 			}
+			println("dasdasdsa "+type_env)
 			if (type_env != "smp") {
-				var language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).
-				value_s;
+				var language =""
+				switch type_env {
+					case "aws":{
+						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+					}
+					case "azure":{
+						language = ((element.environment.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s;
+					}
+				}
 				
 				if (language.contains("python")){
 					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async); 
@@ -112,6 +120,8 @@ class FLYGenerator extends AbstractGenerator {
 			}
 		}
 	}
+		
+	
 	
 		
 	def CharSequence compileJava(Resource resource) '''
@@ -204,7 +214,10 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.S3ObjectSummary;
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
-		«»
+		
+		import com.microsoft.azure.management.resources.fluentcore.arm.Region;
+		import isislab.azureclient.AzureClient;
+		
 		
 		public class «name» {
 			
@@ -243,6 +256,19 @@ class FLYGenerator extends AbstractGenerator {
 					.filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
 					&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))].get(0).name»").get("nthread"));
 				«ENDFOR»
+				
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[((right as DeclarationObject).features.get(0).value_s.equals("azure"))]»
+					«element.name» = new AzureClient("«((element.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s»",
+						"«id_execution»",
+						"«((element.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s»");
+					«element.name».init();
+					«element.name».createFunctionApp("flyapp«element.name»","«(element.right as DeclarationObject).features.get(6).value_s»");
+				«ENDFOR»
+				
 				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")]»
 						«deployFileOnCloud(element,file_deploy_id++)»
@@ -305,7 +331,9 @@ class FLYGenerator extends AbstractGenerator {
 				b.append("]}");
 				return b.toString();
 			}
-		}
+		
+		
+	}
 	'''
 		
 		def undeployFlyFunctionOnCloud(FlyFunctionCall call) {
@@ -313,26 +341,35 @@ class FLYGenerator extends AbstractGenerator {
 				deployed_function.remove(call.target.name)
 				var user = (call.environment.right as DeclarationObject).features.get(1).value_s
 				var cred = call.environment.name
-				return '''
-				Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
-				ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
-				__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
-				__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-				Process __p_undeploy_«call.target.name»;
-				try {
-					__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
-					__p_undeploy_«call.target.name».waitFor();
-					if(__p_undeploy_«call.target.name».exitValue()!=0){
-						System.out.println("Error in «call.target.name»_undeploy.sh ");
-						System.exit(1);
+				var env = (call.environment.right as DeclarationObject).features.get(0).value_s
+				switch env {
+					case "aws":{
+						return '''
+							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
+							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+							__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+							Process __p_undeploy_«call.target.name»;
+							try {
+								__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
+								__p_undeploy_«call.target.name».waitFor();
+								if(__p_undeploy_«call.target.name».exitValue()!=0){
+									System.out.println("Error in «call.target.name»_undeploy.sh ");
+									System.exit(1);
+								}
+							} catch (Exception e) {
+								e.printStackTrace();
+							}	
+							'''			
+					} 
+					case "azure":{
+						return '''
+						«cred».clear("src-gen/flyapp«cred»","src-gen/.env");
+						'''
 					}
-				} catch (Exception e) {
-					e.printStackTrace();
 				}
-«««				«IF  !call.isIsAsync »
-«««				__sqs_«cred».deleteQueue(new DeleteQueueRequest(__sqs_«cred».getQueueUrl("__syncTermination_«call.target.name»_"+__id_execution).getQueueUrl())); 
-«««				«ENDIF»		
-				'''				
+
+					
 			}else
 				return ''''''
 		}
@@ -340,33 +377,37 @@ class FLYGenerator extends AbstractGenerator {
 		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
 			if (!deployed_function.contains(call.target.name)){
 				deployed_function.add(call.target.name)
-				var user = (call.environment.right as DeclarationObject).features.get(1).value_s
-				var cred = call.environment.name
-				return '''
-					Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
-					ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
-					__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
-					Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
-					__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-					String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
-					if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
-						 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
-					}
-					Process __p_deploy_«call.target.name»;
-					try {
-						__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
-						__p_deploy_«call.target.name».waitFor();
-						if(__p_deploy_«call.target.name».exitValue()!=0){
-							System.out.println("Error in «call.target.name»_deploy.sh ");
-							System.exit(1);
+				if((call.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")){
+					var user = (call.environment.right as DeclarationObject).features.get(1).value_s
+					var cred = call.environment.name
+					return '''
+						Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
+						ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
+						__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+						Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+						__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+						String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
+						if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
+							 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
 						}
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-«««					
-«««					__sqs_«cred».createQueue(new CreateQueueRequest("__syncTermination_«call.target.name»_"+__id_execution)); 
-«««					
+						Process __p_deploy_«call.target.name»;
+						try {
+							__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
+							__p_deploy_«call.target.name».waitFor();
+							if(__p_deploy_«call.target.name».exitValue()!=0){
+								System.out.println("Error in «call.target.name»_deploy.sh ");
+								System.exit(1);
+							}
+						} catch (Exception e) {
+							e.printStackTrace();
+						}		
+						'''	
+				}else if((call.environment.right as DeclarationObject).features.get(0).value_s.equals("azure")) {
+					
+					return '''
+					«call.environment.name».publishFunction("«call.target.name»","src-gen/«call.target.name»_deploy.sh");
 					'''
+				}
 			}
 			else 
 			return''''''
@@ -507,7 +548,15 @@ class FLYGenerator extends AbstractGenerator {
 						'''
 					}
 					case "azure":{
-						return ''''''
+						var client_id = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+						var tenant_id = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+						var secret_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+						var subscription_id = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+						var language = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s
+						var region = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
+						return '''
+						static AzureClient «dec.name» = null;
+						'''
 					}
 					case "random":{
 						return '''
@@ -894,8 +943,7 @@ class FLYGenerator extends AbstractGenerator {
 				var name_file_ext = path.split("/").last
 				var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
 				switch (env) {
-				case "aws": {
-					
+				case "aws": 	
 					return '''
 						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
 						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
@@ -912,7 +960,11 @@ class FLYGenerator extends AbstractGenerator {
 							__s3.putObject(__putObjectRequest);
 						}
 					'''
-				}
+				
+				case "azure":
+					return '''
+						«env».uploadFile(new File("«path»"));
+					'''
 				default: {
 					return ''''''
 				}
@@ -921,43 +973,6 @@ class FLYGenerator extends AbstractGenerator {
 	}	
 
 
-//	def generateEnvironmentDeclaration(EnvironmentDeclaration dec) {
-//		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
-//		if (env.equals("smp")){
-//			return '''
-//				static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
-//			'''
-//		}
-//		else if (env.equals("aws")) {
-//			var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
-//			var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
-//			var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
-//			return '''
-//				
-//				static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
-//				
-//				static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
-//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-//					.withRegion("«region»")
-//					.build();
-//				
-//				static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
-//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-//					.withRegion("«region»")
-//					.build();
-//					
-//				static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
-//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-//					.withRegion("«region»")
-//					.build();
-//					
-//				static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
-//					.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-//					.withRegion("«region»")
-//					.build();
-//			'''
-//		}
-//	}
 	
 	def setEnvironmentDeclarationInfo(VariableDeclaration dec){
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
@@ -985,22 +1000,24 @@ class FLYGenerator extends AbstractGenerator {
 				__fly_environment.get("«dec_name»").put("time",«time»);
 				__fly_environment.get("«dec_name»").put("language","«language»");
 			'''
+		}else if (env.equals("azure")){
+			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
+//			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
+			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
+			var language =  ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
+			var profile =((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+			return '''
+				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
+				__fly_environment.get("«dec_name»").put("profile","«profile»");
+				__fly_environment.get("«dec_name»").put("nthread",«threads»);
+«««				__fly_environment.get("«dec_name»").put("memory",«memory»);
+				__fly_environment.get("«dec_name»").put("time",«time»);
+				__fly_environment.get("«dec_name»").put("language","«language»");
+			'''
 		}
+		
 	}
 
-//	def generateChannelDeclaration(ChannelDeclaration declaration) { 
-//			var env = (declaration.environment.right as DeclarationObject).features.get(0).value_s
-//			return '''
-//				static LinkedTransferQueue<Object> «declaration.name» = new LinkedTransferQueue<Object>();
-//				«IF ! env.equals("smp")»
-//					static Boolean __wait_on_«declaration.name» = true;
-//				«ENDIF»
-//				«IF (declaration.environment.right as DeclarationObject).features.length == 3 »
-//					static ServerSocket __socket_server_«declaration.name»;
-//				«ENDIF»
-//			'''
-//	}
-	
 	def generateChannelDeclarationForLanguage(VariableDeclaration dec){
 		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
 		if(env.equals("smp") && (dec.environment.right as DeclarationObject).features.length==3){
@@ -1030,22 +1047,43 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateChanelDeclarationForCloud(VariableDeclaration dec) { // create a queue on AWS
 		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
+		var env_name = dec.environment.name
 		var local = res.allContents.toIterable.filter(VariableDeclaration).filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0).name
-		if (env.equals("aws")) {
+		switch env {
+			case "aws":
 			return '''
-				__sqs_«dec.environment.name».createQueue(new CreateQueueRequest("«dec.name»_"+__id_execution));
+				__sqs_«env_name».createQueue(new CreateQueueRequest("«dec.name»_"+__id_execution));
 				
 				//for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 					__thread_pool_«local».submit(new Callable<Object>() {
 						@Override
 						public Object call() throws Exception {
 							while(__wait_on_«dec.name») {
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«dec.environment.name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl()).
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl()).
 										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
-								ReceiveMessageResult __res = __sqs_«dec.environment.name».receiveMessage(__recmsg);
+								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
 								for(Message msg : __res.getMessages()) { 
 									«dec.name».put(msg.getBody());
-									__sqs_«dec.environment.name».deleteMessage(__sqs_«dec.environment.name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+									__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«dec.name»_"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+								}
+							}
+							return null;
+						}
+					});
+				//}
+			'''
+		case "azure":
+			return '''
+				«env_name».createQueue("«dec.name»_"+__id_execution);
+				//for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+					__thread_pool_«local».submit(new Callable<Object>() {
+						@Override
+						public Object call() throws Exception {
+							while(__wait_on_«dec.name») {
+								List<String> __recMsgs = «env_name».peeksFromQueue("«dec.name»_"+__id_execution,10);
+						
+								for(String msg : __resMsgs) { 
+									«dec.name».put(msg);
 								}
 							}
 							return null;
@@ -1054,41 +1092,8 @@ class FLYGenerator extends AbstractGenerator {
 				//}
 			'''
 		}
+		
 	}
-
-//	def generateDatDeclaration(DatDeclaration dec, String scope) {
-//		
-//		if (dec.right instanceof DeclarationObject) {
-//			var type = (dec.right as DeclarationObject).features.get(2).value_s
-//			var path = (dec.right as DeclarationObject).features.get(1).value_s
-//			if(type.equals("txt")){
-//				typeSystem.get(scope).put(dec.name, "File")
-//				return '''
-//					File «dec.name» = new File("«path»");
-//				'''
-//			}else if(type.equals("csv")){
-//				typeSystem.get(scope).put(dec.name, "Table")
-//			return '''
-//				Table «dec.name» = Table.read().csv(CsvReadOptions
-//					.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
-//					.maxNumberOfColumns(5000)
-//					.tableName("«(dec.right as DeclarationObject).features.get(0).value_s»")
-//					.separator('«(dec.right as DeclarationObject).features.get(3).value_s»')
-//				);
-//			'''
-//			}
-//			
-//		} else {
-//			typeSystem.get(scope).put(dec.name,valuateArithmeticExpression(dec.right as ArithmeticExpression,scope))	
-//			return '''«valuateArithmeticExpression(dec.right as ArithmeticExpression,scope)» «dec.name» = «generateArithmeticExpression(dec.right as ArithmeticExpression,scope)»;'''
-//		}
-//	}
-
-//	def generateRandomDeclaration(RandomDeclaration declaration) {
-//		return '''
-//			Random «declaration.name» = new Random();
-//		'''
-//	}
 
 	// methods for ArithmeticExpression
 	def generateArithmeticExpression(ArithmeticExpression expression, String scope) {
@@ -1161,32 +1166,43 @@ class FLYGenerator extends AbstractGenerator {
 		} else if (expression instanceof CastExpression) {
 			if (expression.op.equals("as")) { // cast
 				if (expression.target instanceof ChannelReceive) {
-					if ((((expression.target as ChannelReceive).target.environment as VariableDeclaration).
-						right as DeclarationObject).features.get(0).value_s.equals("aws")) {
-						var env_name = ((expression.target as ChannelReceive).target.environment as VariableDeclaration).name
-						if (expression.type.equals("Integer")) {
-							return '''
-								__
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
-								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
-								while(__res.getMessages().size() == 0){
+					var env_type = (((expression.target as ChannelReceive).target.environment as VariableDeclaration).
+						right as DeclarationObject).features.get(0).value_s
+					var env_name = ((expression.target as ChannelReceive).target.environment as VariableDeclaration).name
+					switch env_type {
+						case "aws":{
+							if (expression.type.equals("Integer")) {
+								return '''
+									__
+									ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
+									ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
+									while(__res.getMessages().size() == 0){
+										__res = __sqs_«env_name».receiveMessage(__recmsg);
+									}
+									Integer.parseInt(__res.getMessages().get(0).getBody());
+									__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								'''
+							} else if (expression.type.equals("Float")) {
+								return '''
+									ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
+									ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
+									while(__res.getMessages().size() == 0){
 									__res = __sqs_«env_name».receiveMessage(__recmsg);
-								}
-								Integer.parseInt(__res.getMessages().get(0).getBody());
-								__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
-							'''
-						} else if (expression.type.equals("Float")) {
-							return '''
-								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl());
-								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
-								while(__res.getMessages().size() == 0){
-								__res = __sqs_«env_name».receiveMessage(__recmsg);
-								}
-								Double.parseDouble(__res.getMessages().get(0).getBody());
-								__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
-							'''
+									}
+									Double.parseDouble(__res.getMessages().get(0).getBody());
+									__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«(expression.target as ChannelReceive).target.name»"+__id_execution).getQueueUrl(),__res.getMessages().get(0).getReceiptHandle());
+								'''
+							}
+						}
+						case "azure":{
+							if(expression.type.equals("Integer")){
+								
+							}else if(expression.type.equals("Float")){
+								
+							}
 						}
 					}
+
 				}
 				if (expression.type.equals("String")) {
 					return '''(String) «generateArithmeticExpression(expression.target,scope)»'''
@@ -1394,10 +1410,15 @@ class FLYGenerator extends AbstractGenerator {
 
 	def generateFlyFunctionCall(FlyFunctionCall call, String scope) {
 		var env = ((call.environment.right as DeclarationObject).features.get(0)).value_s
+		switch env {
+			case "smp": return generateLocalFlyFunction(call, scope)
+			case "aws": return generateAWSFlyFunctionCall(call, scope)
+			case "azure": return generateAzureFlyFunctionCall(call, scope)
+		}
 		if (env.equals("smp")) {
-			return generateLocalFlyFunction(call, scope)
+			
 		} else if (env.equals("aws")) {
-			return generateAWSFlyFunctionCall(call, scope)
+			
 		}
 
 	}
@@ -1854,30 +1875,177 @@ class FLYGenerator extends AbstractGenerator {
 		func_ID++
 		return ret
 	}
+	
+	
+	def generateAzureFlyFunctionCall(FlyFunctionCall call, String scope) {
+		// generate the aws lambda function
+		var async = call.isIsAsync
+		var cred = call.environment.name
+		var region = ((call.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+		var function = call.target.name
+		var ret = ''''''
+		if (call.input.isIs_for_index) {
+			
+			//create the termination SQS queue 
+			ret+='''
+				«cred».createQueue("termination_«call.target.name»_"+__id_execution+"_«func_ID»");
+				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
+			'''
+			
+			if (call.input.f_index instanceof RangeLiteral) {
+				ret += '''
+					int __num_proc_«call.target.name»_«func_ID» = «(call.input.f_index as RangeLiteral).value2 - (call.input.f_index as RangeLiteral).value1 » ;
+					for(int ___i=«(call.input.f_index as RangeLiteral).value1»;___i<«(call.input.f_index as RangeLiteral).value2»;___i++){
+						final String __s_temp = "{\"id\": «func_ID»,\"data\":"+String.valueOf(___i)+"}";
+						Future<Object> f = __thread_pool_«cred».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								«cred».invokeFunction("«call.target.name»",__s_temp);
+								return null;
+							}
+						});
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					}
+				'''
+			} else if (call.input.f_index instanceof VariableLiteral &&
+				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Table")) {
+				 ret+='''
+					int __num_row_«call.target.name»_«func_ID»=«(call.input.f_index as VariableLiteral).variable.name».rowCount();
+					int __initial_«call.target.name»_«func_ID»=0;
+					int __num_proc_«call.target.name»_«func_ID» = (int) __fly_environment.get("«cred»").get("nthread");
+					ArrayList<Integer> __splits_«call.target.name»_«func_ID» = new ArrayList<Integer>();
+					for(int __i=0;__i<__num_proc;__i++) {
+						if(__i<(__num_row_«call.target.name»_«func_ID»%__num_proc_«call.target.name»_«func_ID»)) {
+							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1));
+							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1;
+						}else{
+							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)));
+							__initial+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
+						}
+					}				 
+					
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+						final int __start;
+						final int __end;
+						if(__i==0) {
+							__start=0;
+						}else{
+							__start=__splits_«call.target.name»_«func_ID».get(__i-1);
+						}
+						__end = __splits_«call.target.name»_«func_ID».get(__i);
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								//creare la stringa 
+								String __s_temp= __generateString( «(call.input.f_index as VariableLiteral).variable.name».where(Selection.withRange(__start, __end)),«func_ID»);
+								«cred».invokeFunction("«call.target.name»",__s_temp);
+								return null;
+							}
+						});
+					__sync_list_«call.target.name».add(f);
+					}
+				 '''
+			}else if (call.input.f_index instanceof VariableLiteral &&
+				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("File")){
+				ret+='''
+					int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+					ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+					int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
+					Scanner __scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new Scanner(«(call.input.f_index as VariableLiteral).variable.name»);
+					while(__scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».hasNextLine()){
+						String __tmp_line = __scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».nextLine();
+						try{
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}catch(Exception e){
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}
+						__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
+					}
+					__scanner_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».close();
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+						final int __i_f = __i;
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								//creare la stringa 
+								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+								«cred».invokeFunction("«call.target.name»",__s_temp);
+								return null;
+							}
+						});
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					}
+				'''
+			}
+		}
+		
+		ret+='''
+			for (Future<Object> f: __sync_list_«call.target.name»_«func_ID»){
+				try {
+					f.get();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (ExecutionException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}'''
+		
+		if(!async){ 
+			ret+='''
+			int __messagges_«call.target.name»_«func_ID» = 0;
+			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
+				List<String> __recMsgs = «cred».peeksFromQueue("termination_«call.target.name»_"+__id_execution+"_«func_ID»",10);
+				for(String msg : __recMsgs) { 
+					__messagges_«call.target.name»_«func_ID»++;
+				}
+			}
+			'''
+		}
+		// manage the callback
+		if (call.isIs_thenall) {
+			ret +='''
+				«call.thenall.name»();
+			'''
+		}
+		func_ID++
+		return ret
+	}
+	
+	
 
 	def generateChannelReceive(ChannelReceive receive, String scope) {
-		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
-			value_s
-		if (env.equals("smp")) {
-			return '''«(receive.target as VariableDeclaration).name».take()'''
-		} else if (env.equals("aws")) {
-			return '''
-			«(receive.target as VariableDeclaration).name».take()'''
-		}
+		return '''
+//			«(receive.target as VariableDeclaration).name».take()'''
+//		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
+//			value_s
+//		if (env.equals("smp")) {
+//			return '''«(receive.target as VariableDeclaration).name».take()'''
+//		} else if (env.equals("aws")) {
+//			return '''
+//			«(receive.target as VariableDeclaration).name».take()'''
+//		}
 
 	}
 
 	def generateChannelSend(ChannelSend send, String scope) {
 		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
 		var env_name = send.target.environment.name
-		if (env.equals("smp")) {
-			return '''«(send.target as VariableDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
-		} else if (env.equals("aws")) {
-			return '''
-				__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));
-			'''
+		switch env {
+			case "smp":
+				return '''«(send.target as VariableDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
+			case "aws":
+				return '''__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));'''
+			case "azure":
+				return '''«env_name».addToQueue("«send.target.name»"+__id_execution,String.valueOf(«generateArithmeticExpression(send.expression,scope)»))'''
 		}
-
 	}
 
 	def generateWhileExpression(WhileExpression expression, String scope) {
@@ -2043,8 +2211,8 @@ class FLYGenerator extends AbstractGenerator {
 		if (assignment.feature != null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
-				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
-					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
+				if (!(((assignment.value as CastExpression).target as ChannelReceive).target.environment.
+					right as DeclarationObject).features.get(0).value_s.equals("smp")) { // aws environment
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
 							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
@@ -2080,8 +2248,8 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (assignment.value instanceof ChannelReceive) {
-				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
-					get(0).value_s.equals("aws")) { // aws environment
+				if (!((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
+					get(0).value_s.equals("smp")) { // aws environment
 					return '''
 						try{
 							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» «generateArithmeticExpression(assignment.value as ChannelReceive,scope)»
@@ -2115,7 +2283,7 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 			}
 			if (assignment.feature_obj instanceof IndexObject) {
-				//println(typeSystem.get(scope))
+
 				if(typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).contains("Array")){
 					return '''«generateArithmeticExpression(assignment.feature_obj,scope)» = «generateArithmeticExpression(assignment.value,scope)»;'''
 				} else if(typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).contains("Matrix")){

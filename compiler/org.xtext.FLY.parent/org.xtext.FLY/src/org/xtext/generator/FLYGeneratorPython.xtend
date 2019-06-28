@@ -48,6 +48,8 @@ import org.xtext.fLY.WhileExpression
 import org.xtext.fLY.PostfixOperation
 import org.xtext.fLY.ArrayDefinition
 import org.xtext.fLY.FlyFunctionCall
+import java.text.SimpleDateFormat
+import java.util.Date
 
 class FLYGeneratorPython extends AbstractGenerator {
 	String name = null
@@ -59,7 +61,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	String language
 	int nthread
 	int memory
-	int time
+	int timeout
 	String user = null
 	Resource resourceInput
 	boolean isLocal
@@ -78,7 +80,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			language = (environment.right as DeclarationObject).features.get(5).value_s
 			nthread = (environment.right as DeclarationObject).features.get(6).value_t
 			memory = (environment.right as DeclarationObject).features.get(7).value_t
-			time = (environment.right as DeclarationObject).features.get(8).value_t					
+			timeout = (environment.right as DeclarationObject).features.get(8).value_t					
 		} else {
 			env = "smp"
 			language = (environment.right as DeclarationObject).features.get(2).value_s
@@ -106,7 +108,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.toList
 		saveToRequirements(allReqs, fsa)
 		println(root.name)
-				if (isLocal) {
+		if (isLocal) {
 			fsa.generateFile(root.name + ".py", input.compilePython(root.name, true))	
 		} else {
 			fsa.generateFile(root.name + "_deploy.sh", input.compileScriptDeploy(root.name, false))
@@ -217,6 +219,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 	}
 
 	def generateBodyPy(BlockExpression exps, List<Expression> parameters, String name, String env, boolean local) {
+		//println("generaty python body "+name)
+		//println(typeSystem.get(name))
 		val channelNames = channelsNames(exps)
 		'''
 			# python
@@ -233,12 +237,22 @@ class FLYGeneratorPython extends AbstractGenerator {
 			«FOR chName : channelNames»
 				«chName» = sqs.get_queue_by_name(QueueName='«chName»_"${id}"')
 			«ENDFOR»
+			
+			«ELSEIF env == "azure"»
+			import azure.functions as func
+			from azure.storage.queue import QueueService 
 			«ENDIF»
-						
+			
+			«IF env == "aws" »			
 			def handler(event,context):
 				
 				id_func=event['id']
 				data = event['data']
+			«ELSEIF env == "azure"»
+			def main(req: func.HttpRequest):
+				__queue_service = QueueService(account_name="${storage_account}", account_key="${storage_key}")
+				data = req.get_json()
+			«ENDIF»
 				«FOR exp : parameters»
 					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
 						__columns = data[0].keys()
@@ -251,23 +265,28 @@ class FLYGeneratorPython extends AbstractGenerator {
 				«FOR exp : exps.expressions»
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
-				
-				__syncTermination = sqs.get_queue_by_name(QueueName='termination_"${function}"_"${id}"_'+str(id_func))
-				__syncTermination.send_message(MessageBody=json.dumps('terminate'))
-			
+				«IF env == "aws" »			
+					__syncTermination = sqs.get_queue_by_name(QueueName='termination_"${function}"_"${id}"_'+str(id_func))
+					__syncTermination.send_message(MessageBody=json.dumps('terminate'))
+				«ELSEIF env == "azure"»
+					__queue_service.put_message('termination_"${function}"_"${id}"_'+str(id_func), u'terminate')
+				«ENDIF»
 		'''
 	}
 
 	def generatePyExpression(Expression exp, String scope, boolean local) {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
+			var env = (exp.target.environment.right as DeclarationObject).features.get(0).value_s ;//(exp.target as DeclarationObject).features.get(0).value_s;
 			s += '''			
 			«IF local»
 				«exp.target.name».write(json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
-			«ELSE»
+			«ELSEIF (env == "aws")»
 			«exp.target.name».send_message(
 				MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»)
 			)
+			«ELSEIF env=="azure"»
+			__queue_service.put_message('«exp.target.name»', json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
 			«ENDIF»
 
 			'''
@@ -410,77 +429,73 @@ class FLYGeneratorPython extends AbstractGenerator {
 		return s
 	}
 	
-//	def generateJsNativeExpression(NativeExpression expression) { 
-//		var i=0;
-//		var lines = expression.code.split("\n");
-//		var num_tabs = 0 
-//		while(lines.get(1).charAt(i).equals(lines.get(1).charAt(0))){
-//			num_tabs++; 
-//			i++;
-//		}
-//		i=0
-//		var ret = new StringBuilder()
-//		for (i=1; i< lines.length-1;i++){
-//			println(lines.get(i))
-//			if(lines.get(i).length>=num_tabs){
-//				var string = lines.get(i).substring(num_tabs).replaceAll("\"","'")
-//				ret.append('''«string»''')
-//				ret.append("\n")
-//			}
-//			
-//		}
-//		return ret.toString
-//	}
-	
 
 	def generatePyAssignmentExpression(Assignment assignment, String scope, boolean local) {
-		println(assignment);
+		println("sssss"+assignment);
 		if (assignment.feature !== null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
 				// If it is a CastExpression of a channel receive
+				val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment2
 					// And we are on AWS
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
+					//TODO controllare receive_message
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						// And we are trying to read an integer
 						return '''
 						«IF local»
-						int(«channel.name».readline())
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(«channel.name».readline())
 						«ELSE»
-						int(«channel.name».receive_messages()[0])
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(«channel.name».receive_messages()[0]) 
 						«ENDIF»
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						// And we are trying to read a double
 						return '''
 						«IF local»
-						float(«channel.name».readline())
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(«channel.name».readline())
 						«ELSE»
-						float(«channel.name».receive_messages()[0])							
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(«channel.name».receive_messages()[0])							
 						«ENDIF»
 						'''
 					}
-				} else { 
+				} else if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
+					right as DeclarationObject).features.get(0).value_s.equals("azure")) { 
 					// And we are on other environments
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
-						raise Exception('not now')
+						«IF local»
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(«channel.name».readline())
+						«ELSE»
+						__msg =__queue_service.get_messages('«channel.name»')[0]
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(__msg.content)
+						__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
+						«ENDIF»
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
 						return '''
-						raise Exception('not now')							
+						«IF local»
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(«channel.name».readline())
+						«ELSE»
+						__msg =__queue_service.get_messages('«channel.name»')[0]
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(__msg.content)
+						__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
+						«ENDIF»
 						'''
 					}
+				} else { // other environments
+					return '''
+					raise Exception('not now')
+					'''
 				}
 
 			} else if (assignment.value instanceof ChannelReceive) {
+				val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 				// If it is an assignment of type Channel receive
 				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { 
 					// And we are on AWS
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 					return '''
 					«IF local»
 					«channel.name».readline()
@@ -489,14 +504,14 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«ENDIF»
 					'''
 				} else if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
-					get(0).value_s.equals("smp")) {
-					
-					val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
+					get(0).value_s.equals("azure")) {
 					return '''
 					«IF local»
 					«channel.name».readline()
 					«ELSE»
-					«channel.name».receive_messages()[0]
+					__msg =__queue_service.get_messages('«channel.name»')[0]
+					«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» __msg.content
+					__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
 					«ENDIF»
 					'''	
 					}
@@ -675,7 +690,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
-			if (exp.target.typeobject.equals("random")) {
+			if ((exp.target.right as DeclarationObject).features.get(0).value_s.equals("random") ) {
 				return '''random.random()'''
 			}else if(exp.feature.equals("length")){
 				return '''len(«exp.target.name»)'''
@@ -714,7 +729,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 			if (local) {
 				return '''«channelName».readline()'''
 			}
-			return '''«channelName».receive_messages()[0]'''
+			var env = ((exp.target.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s
+			if(env.equals("aws")){ //TODO cancellare messaggio, controllare se non viene mai invocata
+				return '''«channelName».receive_messages()[0]'''
+			}else if(env.equals("azure")){
+				return '''__queue_service.receive_messages('«channelName»')[0]'''
+			}else{
+				return'''
+				'''
+			}
+			
 		} else if (exp instanceof LocalFunctionCall) {
 			return generatePyExpression(exp as LocalFunctionCall, scope, local)
 		} else {
@@ -856,7 +880,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 		«generateBodyPyLocal(root.body,root.parameters,name,env, local)»
 	'''
 	
-	def CharSequence compileScriptDeploy(Resource resource, String name, boolean local) 
+	def CharSequence compileScriptDeploy(Resource resource, String name, boolean local){
+		switch this.env {
+		   case "aws": AWSDeploy(resource,name,local,false)
+		   case "aws-debug": AWSDeploy(resource,name,local,true)
+		   case "azure": AzureDeploy(resource,name,local)
+		   default: this.env+" not supported"
+  		}
+	} 	
+	
+	def CharSequence AWSDeploy(Resource resource, String name, boolean local, boolean debug)
 	'''
 	#!/bin/bash
 	
@@ -1050,14 +1083,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 	#create the lambda function
 	echo "creation of the lambda function"
 	
-	
 	echo "zip file too big, uploading it using s3"
 	echo "creating bucket for s3"
 	aws s3 --profile ${user} mb s3://${function}${id}bucket
 	echo "s3 bucket created. uploading file"
 	aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 	echo "file uploaded, creating function"
-	aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size 128 --timeout 300
+	aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
 	echo "lambda function created"
 	
 	
@@ -1068,41 +1100,228 @@ class FLYGeneratorPython extends AbstractGenerator {
 	rm rolePolicyDocument.json
 	rm policyDocument.json
 	'''
-
-	def CharSequence compileScriptUndeploy(Resource resource, String string, boolean b) '''
-	#!/bin/bash
-				
-		if [ $# -eq 0 ]
+	
+	def CharSequence AzureDeploy(Resource resource, String name, boolean local)
+	'''
+		#!/bin/bash
+		
+«««		#Check if script is running as sudo
+«««		if [[ $# -ne 6 ]]; then
+«««			echo "Error in number of parameters, run with:"
+«««			echo "<app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId> <timeout> <storageName> <storageKey>"
+«««			exit 1
+«««		fi
+		
+					
+		if [ $# -ne 10 ]
 		  then
-		    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+		    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId> <timeout> <storageName> <storageKey>"
 		    exit 1
 		fi
 		
-		user=$1
+		app=$1
 		function=$2
 		id=$3
+		user=$4
+		tenant=$5
+		secret=$6
+		subscription=$7
+		timeout=$8
+		storageName=$9
+		storageKey=$10
 		
-		# delete user queue
-		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
-		.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
-			#get «res.name»_${id} queue-url
+		az login --service-principal -u ${user} -t ${tenant} -p ${secret} --subscription ${subscription}
+		
+		#Check if python is installed
+		if !(command -v python3 &>/dev/null) then
+			echo "Script require python 3.6"
+			exit 1;
+		fi
+		
+		#Check if Azure Functions Core Tools is installed
+		if !(command -v az &>/dev/null) then
+			echo "Script require Azure Functions Core Tools"
+			exit 1;
+		fi
+		
+		#Virtual environment
+		echo "Creating the virtual environment"
+		
+		if [ ! -d .env ]; then
+		
+			python3.6 -m venv .env
+			source .env/bin/activate
 			
-			echo "get «res.name»_${id} queue-url"
-			queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
-			echo ${queue_url//\"}
+			pip3 install azure-storage-query
+			if [ $? -eq 0 ]; then
+			    echo "..."
+			else
+			    echo "pip install azure-storage-query failed"
+			    exit 1
+			fi
 			
-			echo "delete queue at url ${queue_url//\"} "
-			aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+			pip3 install pytz
+			if [ $? -eq 0 ]; then
+			    echo "..."
+			else
+			    echo "pip install pytz failed"
+			    exit 1
+			fi
 			
-		«ENDFOR»
-
-		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-			#delete lambda function: «res.target.name»_${id}
-			echo "delete lambda function: «res.target.name»_${id}"
-			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 			
-		«ENDFOR»
+			pip3 install ortools
+			if [ $? -eq 0 ]; then
+			    echo "..."
+			else
+			    echo "pip install ortools failed"
+			    exit 1
+			fi
+			
+			echo ""
+			echo "add precompliled libraries"
+			
+			cd venv/lib/python3.6/site-packages/
+			echo "installing ortools"
+			rm -rf ortools*
+			wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+			unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+			rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+			echo "ortools installed"
+			
+			echo "installing pandas"
+			wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+			unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+			rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
+			echo "pandas installed"
+			
+			echo "installing numpy"
+			wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+			unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+			rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+			echo "numpy installed"
+			
+		else
+			source .env/bin/activate
+		fi
+		
+		echo "Virtual environment has been created"
+		
+		#Local function's local project
+		echo "Creating function's local project"
+		
+		if [ ! -d ${app}${id} ]; then
+			func init ${app}${id} --worker-runtime=python --no-source-control -n
+					
+			mv requirements.txt ./.${app}${id}
+			
+			cd ${app}${id}
+			
+			if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
+			
+			rm -f host.json
+			echo "{
+				"version": "2.0",
+				"functionTimeout": "«String.format("%02d:%02d:%02d",0,timeout/60,timeout%60)»"
+			}" > host.json;
+			
+			cd ..
+		else
+			cd ${app}${id}
+		fi
+		
+		echo "Function's local project has been created"
+		
+		mkdir ${function}
+		cd ${function}
+		
+		echo "Creating Function's files..."
+		
+		echo '{
+		  "scriptFile": "function.py",
+		  "bindings": [
+		    {
+		      "authLevel": "function",
+		      "type": "httpTrigger",
+		      "direction": "in",
+		      "name": "req",
+		      "methods": [
+		        "post"
+		      ]
+		    }
+		  ]
+		}' > function.json
+		echo "Function.json created"
+		
+		#Creating function's source file
+		echo "«generateBodyPy(root.body,root.parameters,name,env, local)»
+			
+			«FOR fd:functionCalled.values()»
+				
+			«generatePyExpression(fd, name, local)»
+			
+			«ENDFOR»
+			" > ${function}.py
+		echo "Function.py created"
+		
+		echo "Function's files have been created"
+		
+		#Routine to deploy on Azure
+		cd ..
+		
+		echo "Deploying the function"
+		func azure functionapp publish ${app}${id}
+		
+		az  logout
 	'''
+	
+	def CharSequence AzureUndeploy(Resource resource, String string, boolean local)'''
+	'''
+	
+	def CharSequence AWSUndeploy(Resource resource, String string, boolean local,boolean debug)'''
+	#!/bin/bash
+					
+			if [ $# -eq 0 ]
+			  then
+			    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+			    exit 1
+			fi
+			
+			user=$1
+			function=$2
+			id=$3
+			
+			# delete user queue
+			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
+			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+				#get «res.name»_${id} queue-url
+				
+				echo "get «res.name»_${id} queue-url"
+				queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
+				echo ${queue_url//\"}
+				
+				echo "delete queue at url ${queue_url//\"} "
+				aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+				
+			«ENDFOR»
+	
+			«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+				#delete lambda function: «res.target.name»_${id}
+				echo "delete lambda function: «res.target.name»_${id}"
+				aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+				
+			«ENDFOR»
+	'''
+
+	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
+		switch this.env {
+			   case "aws": AWSUndeploy(resource,name,local,false)
+			   case "aws-debug": AWSUndeploy(resource,name,local,true)
+			   case "azure": AzureUndeploy(resource,name,local)
+			   default: this.env+" not supported"
+	  		}
+	} 
+	
+	
 
 }
 
