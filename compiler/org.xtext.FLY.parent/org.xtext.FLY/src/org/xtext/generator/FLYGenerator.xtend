@@ -168,6 +168,7 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.Comparator;
 		import java.util.Map;
 		import java.util.Scanner;
+		«IF checkAWS()»
 		import com.amazonaws.AmazonClientException;
 		import com.amazonaws.auth.AWSStaticCredentialsProvider;
 		import com.amazonaws.auth.BasicAWSCredentials;
@@ -212,12 +213,13 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.ListObjectsV2Result;
 		import com.amazonaws.services.s3.model.PutObjectRequest;
 		import com.amazonaws.services.s3.model.S3ObjectSummary;
+		«ENDIF»
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
-		
+		«IF checkAzure()»
 		import com.microsoft.azure.management.resources.fluentcore.arm.Region;
 		import isislab.azureclient.AzureClient;
-		
+		«ENDIF»
 		
 		public class «name» {
 			
@@ -242,6 +244,17 @@ class FLYGenerator extends AbstractGenerator {
 				«FOR element : resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
 				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]»
 					«setEnvironmentDeclarationInfo(element)»
+				«ENDFOR»
+				
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
+				filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
+					«IF !(element.environment.right as DeclarationObject).features.get(0).equals("smp")»
+					«generateChanelDeclarationForCloud(element)»
+					«ELSEIF (element.environment.right as DeclarationObject).features.get(0).equals("smp") &&
+						(element.environment.right as DeclarationObject).features.length==3»
+						«generateChannelDeclarationForLanguage(element)»
+					«ENDIF»
+				
 				«ENDFOR»
 				«IF resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")].length > 0»
@@ -347,8 +360,14 @@ class FLYGenerator extends AbstractGenerator {
 						return '''
 							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
 							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+							Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+							
 							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 							__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+							String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
+							if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
+								 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
+							}
 							Process __p_undeploy_«call.target.name»;
 							try {
 								__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
@@ -1048,7 +1067,9 @@ class FLYGenerator extends AbstractGenerator {
 	def generateChanelDeclarationForCloud(VariableDeclaration dec) { // create a queue on AWS
 		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
 		var env_name = dec.environment.name
-		var local = res.allContents.toIterable.filter(VariableDeclaration).filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0).name
+		var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+			filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0)
+		var local = local_env.name
 		switch env {
 			case "aws":
 			return '''
@@ -2596,6 +2617,26 @@ class FLYGenerator extends AbstractGenerator {
 			}
 			return null
 		}
+	}
+	
+	def Boolean checkAWS(){
+		for(VariableDeclaration env: res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+			filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]
+		){
+			if ((env.right as DeclarationObject).features.get(0).value_s.equals("aws"))
+				return true
+		}
+		return false
+	}
+	
+	def Boolean checkAzure(){
+		for(VariableDeclaration env: res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+			filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]
+		){
+			if ((env.right as DeclarationObject).features.get(0).value_s.equals("azure"))
+				return true
+		}
+		return false
 	}
 
 	def checkBlock(EObject el) {
