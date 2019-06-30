@@ -1,6 +1,4 @@
 language: java
-jdk:
-  - oraclejdk11
 install: true
 script:
   - cd compiler/org.xtext.FLY.parent
