@@ -360,13 +360,13 @@ class FLYGenerator extends AbstractGenerator {
 						return '''
 							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
 							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
-							Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
 							
 							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 							__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-							String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
-							if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
-								 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
+							String __path_env_undeploy_«call.target.name» = __env_undeploy_«call.target.name».get("PATH");
+							if (!__path_env_undeploy_«call.target.name».contains("/usr/local/bin")) {
+								 __env_undeploy_«call.target.name».put("PATH", __path_env_undeploy_«call.target.name»+":/usr/local/bin");
 							}
 							Process __p_undeploy_«call.target.name»;
 							try {
@@ -403,11 +403,11 @@ class FLYGenerator extends AbstractGenerator {
 						Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
 						ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
 						__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
-						Map<String, String> __env_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+						Map<String, String> __env_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
 						__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-						String __path_env_«call.target.name» = __env_«call.target.name».get("PATH");
-						if (!__path_env_«call.target.name».contains("/usr/local/bin")) {
-							 __env_«call.target.name».put("PATH", __path_env_«call.target.name»+":/usr/local/bin");
+						String __path_env_deploy_«call.target.name» = __env_deploy_«call.target.name».get("PATH");
+						if (!__path_env_deploy_«call.target.name».contains("/usr/local/bin")) {
+							 __env_deploy_«call.target.name».put("PATH", __path_env_deploy_«call.target.name»+":/usr/local/bin");
 						}
 						Process __p_deploy_«call.target.name»;
 						try {
@@ -1783,13 +1783,13 @@ class FLYGenerator extends AbstractGenerator {
 					int __initial_«call.target.name»_«func_ID»=0;
 					int __num_proc_«call.target.name»_«func_ID» = (int) __fly_environment.get("«cred»").get("nthread");
 					ArrayList<Integer> __splits_«call.target.name»_«func_ID» = new ArrayList<Integer>();
-					for(int __i=0;__i<__num_proc;__i++) {
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++) {
 						if(__i<(__num_row_«call.target.name»_«func_ID»%__num_proc_«call.target.name»_«func_ID»)) {
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1));
 							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1;
 						}else{
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)));
-							__initial+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
+							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
 						}
 					}				 
 					
@@ -1815,7 +1815,7 @@ class FLYGenerator extends AbstractGenerator {
 								return null;
 							}
 						});
-					__sync_list_«call.target.name».add(f);
+					__sync_list_«call.target.name»_«func_ID».add(f);
 					}
 				 '''
 			}else if (call.input.f_index instanceof VariableLiteral &&
