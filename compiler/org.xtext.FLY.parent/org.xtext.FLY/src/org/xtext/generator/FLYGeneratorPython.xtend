@@ -106,6 +106,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.filter[(it.environment.right as DeclarationObject).features.get(0).value_s != 'smp']
 			.map[it.lib]
 			.toList
+		allReqs.add("numpy")
+		allReqs.add("pandas")
+		allReqs.add("pytz")
+		allReqs.add("ortools")
+		allReqs.add("azure-storage-queue")
 		saveToRequirements(allReqs, fsa)
 		println(root.name)
 		if (isLocal) {
@@ -235,12 +240,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 			sqs = boto3.resource('sqs')
 
 			«FOR chName : channelNames»
-				«chName» = sqs.get_queue_by_name(QueueName='«chName»_"${id}"')
+				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
 			«ENDFOR»
 			
 			«ELSEIF env == "azure"»
 			import azure.functions as func
 			from azure.storage.queue import QueueService 
+			from azure.storage.queue.models import QueueMessageFormat
 			«ENDIF»
 			
 			«IF env == "aws" »			
@@ -250,8 +256,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 				data = event['data']
 			«ELSEIF env == "azure"»
 			def main(req: func.HttpRequest):
-				__queue_service = QueueService(account_name="${storage_account}", account_key="${storage_key}")
-				data = req.get_json()
+				__queue_service = QueueService(account_name='"${storageName}"', account_key='"${storageKey}"')
+				__queue_service.encode_function = QueueMessageFormat.text_base64encode
+				__event = req.get_json()
+				id_func= __event['id']
+				data = __event['data']
 			«ENDIF»
 				«FOR exp : parameters»
 					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
@@ -266,10 +275,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
 				«IF env == "aws" »			
-					__syncTermination = sqs.get_queue_by_name(QueueName='termination_"${function}"_"${id}"_'+str(id_func))
+					__syncTermination = sqs.get_queue_by_name(QueueName='termination-"${function}"-"${id}"-'+str(id_func))
 					__syncTermination.send_message(MessageBody=json.dumps('terminate'))
 				«ELSEIF env == "azure"»
-					__queue_service.put_message('termination_"${function}"_"${id}"_'+str(id_func), u'terminate')
+					__queue_service.put_message('termination-"${function}"-"${id}"-'+str(id_func), 'terminate')
 				«ENDIF»
 		'''
 	}
@@ -286,7 +295,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»)
 			)
 			«ELSEIF env=="azure"»
-			__queue_service.put_message('«exp.target.name»', json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
+			__queue_service.put_message('«exp.target.name»-"${id}"', json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»))
 			«ENDIF»
 
 			'''
@@ -468,9 +477,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 						«IF local»
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(«channel.name».readline())
 						«ELSE»
-						__msg =__queue_service.get_messages('«channel.name»')[0]
+						__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(__msg.content)
-						__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
+						__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
 						«ENDIF»
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
@@ -478,9 +487,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 						«IF local»
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(«channel.name».readline())
 						«ELSE»
-						__msg =__queue_service.get_messages('«channel.name»')[0]
+						__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(__msg.content)
-						__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
+						__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
 						«ENDIF»
 						'''
 					}
@@ -509,9 +518,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«IF local»
 					«channel.name».readline()
 					«ELSE»
-					__msg =__queue_service.get_messages('«channel.name»')[0]
+					__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
 					«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» __msg.content
-					__queue_service.delete_message('«channel.name»',__msg.id, __msg.pop_receipt)
+					__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
 					«ENDIF»
 					'''	
 					}
@@ -733,7 +742,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			if(env.equals("aws")){ //TODO cancellare messaggio, controllare se non viene mai invocata
 				return '''«channelName».receive_messages()[0]'''
 			}else if(env.equals("azure")){
-				return '''__queue_service.receive_messages('«channelName»')[0]'''
+				return '''__queue_service.receive_messages('«channelName»-"${id}"')[0]'''
 			}else{
 				return'''
 				'''
@@ -1113,9 +1122,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 «««		fi
 		
 					
-		if [ $# -ne 10 ]
+		if [ $# -ne 9 ]
 		  then
-		    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId> <timeout> <storageName> <storageKey>"
+		    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId>  <storageName> <storageKey>"
 		    exit 1
 		fi
 		
@@ -1126,9 +1135,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		tenant=$5
 		secret=$6
 		subscription=$7
-		timeout=$8
-		storageName=$9
-		storageKey=$10
+		storageName=$8
+		storageKey=$9
 		
 		az login --service-principal -u ${user} -t ${tenant} -p ${secret} --subscription ${subscription}
 		
@@ -1150,60 +1158,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 		if [ ! -d .env ]; then
 		
 			python3.6 -m venv .env
-			source .env/bin/activate
-			
-			pip3 install azure-storage-query
-			if [ $? -eq 0 ]; then
-			    echo "..."
-			else
-			    echo "pip install azure-storage-query failed"
-			    exit 1
-			fi
-			
-			pip3 install pytz
-			if [ $? -eq 0 ]; then
-			    echo "..."
-			else
-			    echo "pip install pytz failed"
-			    exit 1
-			fi
-			
-			
-			pip3 install ortools
-			if [ $? -eq 0 ]; then
-			    echo "..."
-			else
-			    echo "pip install ortools failed"
-			    exit 1
-			fi
-			
-			echo ""
-			echo "add precompliled libraries"
-			
-			cd venv/lib/python3.6/site-packages/
-			echo "installing ortools"
-			rm -rf ortools*
-			wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-			unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-			rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-			echo "ortools installed"
-			
-			echo "installing pandas"
-			wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-			unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-			rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
-			echo "pandas installed"
-			
-			echo "installing numpy"
-			wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-			unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-			rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-			echo "numpy installed"
-			
-		else
-			source .env/bin/activate
 		fi
 		
+		source .env/bin/activate
 		echo "Virtual environment has been created"
 		
 		#Local function's local project
@@ -1212,19 +1169,19 @@ class FLYGeneratorPython extends AbstractGenerator {
 		if [ ! -d ${app}${id} ]; then
 			func init ${app}${id} --worker-runtime=python --no-source-control -n
 					
-			mv requirements.txt ./.${app}${id}
+			cp ./src-gen/requirements.txt ./${app}${id}
 			
 			cd ${app}${id}
 			
 			if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
 			
 			rm -f host.json
-			echo "{
+			echo '{
 				"version": "2.0",
 				"functionTimeout": "«String.format("%02d:%02d:%02d",0,timeout/60,timeout%60)»"
-			}" > host.json;
+			}' > host.json;
 			
-			cd ..
+			
 		else
 			cd ${app}${id}
 		fi
@@ -1240,7 +1197,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		  "scriptFile": "function.py",
 		  "bindings": [
 		    {
-		      "authLevel": "function",
+		      "authLevel": "system",
 		      "type": "httpTrigger",
 		      "direction": "in",
 		      "name": "req",
@@ -1260,7 +1217,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			«generatePyExpression(fd, name, local)»
 			
 			«ENDFOR»
-			" > ${function}.py
+			" > function.py
 		echo "Function.py created"
 		
 		echo "Function's files have been created"
@@ -1269,9 +1226,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 		cd ..
 		
 		echo "Deploying the function"
-		func azure functionapp publish ${app}${id}
-		
+		func azure functionapp publish ${app}${id} --build-native-deps
+				
 		az  logout
+		deactivate
 	'''
 	
 	def CharSequence AzureUndeploy(Resource resource, String string, boolean local)'''
@@ -1295,8 +1253,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
 				#get «res.name»_${id} queue-url
 				
-				echo "get «res.name»_${id} queue-url"
-				queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
+				echo "get «res.name»-${id} queue-url"
+				queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
 				echo ${queue_url//\"}
 				
 				echo "delete queue at url ${queue_url//\"} "
