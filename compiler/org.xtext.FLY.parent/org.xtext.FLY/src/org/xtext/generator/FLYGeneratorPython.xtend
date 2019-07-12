@@ -110,12 +110,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 		allReqs.add("pandas")
 		allReqs.add("pytz")
 		allReqs.add("ortools")
-		allReqs.add("azure-storage-queue")
+		if(env.equals("azure"))
+			allReqs.add("azure-storage-queue")
 		saveToRequirements(allReqs, fsa)
 		println(root.name)
 		if (isLocal) {
 			fsa.generateFile(root.name + ".py", input.compilePython(root.name, true))	
-		} else {
+		}else {
+			if(env.equals("aws-debug"))
+				fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
 			fsa.generateFile(root.name + "_deploy.sh", input.compileScriptDeploy(root.name, false))
 			fsa.generateFile(root.name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
 		}
@@ -125,7 +128,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 		
 	}
 	
-
 	def channelsNames(BlockExpression exps) {
 
 		var names = new HashSet<String>();		
@@ -242,14 +244,20 @@ class FLYGeneratorPython extends AbstractGenerator {
 			«FOR chName : channelNames»
 				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
 			«ENDFOR»
+			«ELSEIF env == "aws-debug"»
+			import boto3
+			sqs = boto3.resource('sqs',endpoint_url='http://192.168.0.1:4576')
 			
+			«FOR chName : channelNames»
+				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
+			«ENDFOR»
 			«ELSEIF env == "azure"»
 			import azure.functions as func
 			from azure.storage.queue import QueueService 
 			from azure.storage.queue.models import QueueMessageFormat
 			«ENDIF»
 			
-			«IF env == "aws" »			
+			«IF env.contains("aws") »			
 			def handler(event,context):
 				
 				id_func=event['id']
@@ -267,6 +275,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 						__columns = data[0].keys()
 						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
+					«ELSEIF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
+						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 					«ELSE»
 						«(exp as VariableDeclaration).name» = data # TODO check
 					«ENDIF»
@@ -274,7 +284,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				«FOR exp : exps.expressions»
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
-				«IF env == "aws" »			
+				«IF env.contains("aws") »			
 					__syncTermination = sqs.get_queue_by_name(QueueName='termination-"${function}"-"${id}"-'+str(id_func))
 					__syncTermination.send_message(MessageBody=json.dumps('terminate'))
 				«ELSEIF env == "azure"»
@@ -290,7 +300,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			s += '''			
 			«IF local»
 				«exp.target.name».write(json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
-			«ELSEIF (env == "aws")»
+			«ELSEIF (env.contains("aws"))»
 			«exp.target.name».send_message(
 				MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»)
 			)
@@ -323,6 +333,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					s += '''}'''
 
 				} else if (exp.right instanceof ArrayDefinition) {
+					typeSystem.get(scope).put(exp.name, "Array")
 					val len = (exp.right as ArrayDefinition).indexes.get(0).value
 					val type = (exp.right as ArrayDefinition).type
 					s += '''
@@ -332,13 +343,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 				else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
 					switch (type) {
-						case "DataFrame": {
+						case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
 							var path = (exp.right as DeclarationObject).features.get(1).value_s
 							var fileType = (exp.right as DeclarationObject).features.get(2).value_s
 							var sep = (exp.right as DeclarationObject).features.get(3).value_s
 							path = path.replaceAll('"', '');
-							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »https://s3.us-east-2.amazonaws.com/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
+							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »«IF env == "aws"»https://s3.us-east-2.amazonaws.com«ELSEIF env=="aws-debug"»http//192.168.0.1:4572«ENDIF»/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
 							switch (fileType) {
 								case 'csv': {
 									s += '''
@@ -353,13 +364,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 							}
 						}
 						case "File":{
+							typeSystem.get(scope).put(exp.name, "File")
 							return ''''''
 						}
 						default: {
 							return ''''''
 						}
 					}
-				} else {
+				} else { 
+					typeSystem.get(scope).put(exp.name, valuateArithmeticExpression(exp.right as ArithmeticExpression,scope,local))
 					s += '''
 						«exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression, scope, local)»
 					'''
@@ -432,15 +445,41 @@ class FLYGeneratorPython extends AbstractGenerator {
 				case "++": postfixOp = "+=1"
 				case "--": postfixOp = "-=1"
 			}
-			return '''«generatePyArithmeticExpression(exp.variable, scope, local)»«postfixOp»'''
+			s +='''«generatePyArithmeticExpression(exp.variable, scope, local)»«postfixOp»'''
 			
+		} else if (exp instanceof NativeExpression){
+			s +='''«generateNativeEpression(exp,scope,local)»'''
 		}
+			
 		return s
+	}
+	
+	def generateNativeEpression(NativeExpression expression, String string, boolean b) {
+		var code_lst = expression.code;
+		var code_lst_split = code_lst.split("\n");
+		var first_line = code_lst_split.get(1)
+		var first_line_split = first_line.split("\t")
+		var tabs= 0
+		for(w : first_line_split){
+			if (w.equals(""))
+				tabs=tabs+1
+		}
+		var s=''''''
+		var str = new StringBuilder();
+		for(var  i=1;i<code_lst_split.size-1;i++){
+			var line = code_lst_split.get(i)
+			if(line.equals(""))
+					str.append("")
+				else
+					str.append(line.substring(tabs))
+				str.append("\n")
+		}
+		var ret_str = str.toString.replace("\"","'")
+		return ret_str
 	}
 	
 
 	def generatePyAssignmentExpression(Assignment assignment, String scope, boolean local) {
-		println("sssss"+assignment);
 		if (assignment.feature !== null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
@@ -616,6 +655,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«ENDIF»
 			'''
 		} else if (exp.object instanceof VariableLiteral) {
+			println("Variable: "+ (exp.object as VariableLiteral).variable.name +" type: "+ typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name)) 
 			if (((exp.object as VariableLiteral).variable.typeobject.equals('var') &&
 				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
@@ -633,7 +673,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 					
 				'''
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') || 
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
+				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table") ||
+				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File") ) {
 				return '''
 				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
 					«IF exp.body instanceof BlockExpression»
@@ -699,7 +740,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
-			if ((exp.target.right as DeclarationObject).features.get(0).value_s.equals("random") ) {
+			if ((exp.target.right instanceof DeclarationObject)  && (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random") ) {
 				return '''random.random()'''
 			}else if(exp.feature.equals("length")){
 				return '''len(«exp.target.name»)'''
@@ -793,7 +834,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		} else if (exp instanceof NameObject) {
 			return typeSystem.get(scope).get(exp.name.name + "." + exp.value)
 		} else if (exp instanceof IndexObject) {
-			
+			println(typeSystem.get(scope))
+			println(exp.name.name)
 			if (typeSystem.get(scope).get(exp.name.name).contains("Array") || typeSystem.get(scope).get(exp.name.name).contains("Matrix") ) {
 				return typeSystem.get(scope).get(exp.name.name).split("_").get(1);
 			} else {
@@ -892,7 +934,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def CharSequence compileScriptDeploy(Resource resource, String name, boolean local){
 		switch this.env {
 		   case "aws": AWSDeploy(resource,name,local,false)
-		   case "aws-debug": AWSDeploy(resource,name,local,true)
+		   case "aws-debug": AWSDebugDeploy(resource,name,local,true)
 		   case "azure": AzureDeploy(resource,name,local)
 		   default: this.env+" not supported"
   		}
@@ -1014,16 +1056,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
 		python get-pip.py
 	fi
-	
-	
-	pip3 install boto3
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "pip install boto3 failed"
-	    exit 1
-	fi
-	
+		
 	pip3 install pytz
 	if [ $? -eq 0 ]; then
 	    echo "..."
@@ -1041,7 +1074,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	    exit 1
 	fi
 	
-	if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
+	pip3 install -r ./src-gen/requirements.txt
 	
 			
 	echo ""
@@ -1056,12 +1089,14 @@ class FLYGeneratorPython extends AbstractGenerator {
 	echo "ortools installed"
 	
 	echo "installing pandas"
+	rm -rf pandas*
 	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
 	echo "pandas installed"
 	
 	echo "installing numpy"
+	rm -rf numpy*
 	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
@@ -1109,6 +1144,241 @@ class FLYGeneratorPython extends AbstractGenerator {
 	rm rolePolicyDocument.json
 	rm policyDocument.json
 	'''
+	
+	def CharSequence AWSDebugDeploy(Resource resource, String name, boolean local, boolean debug)
+	'''
+	#!/bin/bash
+	
+	if [ $# -eq 0 ]
+	  then
+	    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+	    exit 1
+	fi
+	
+	echo "Checking that aws-cli is installed"
+	which aws
+	if [ $? -eq 0 ]; then
+	      echo "aws-cli is installed, continuing..."
+	else
+	      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
+	      exit 1
+	fi
+	
+	echo "Checking wheter virtualenv is installed"
+	which virtualenv
+	if [ $? -eq 0 ]; then
+		echo "virtualenv is installed, continuing..."
+	else
+	     echo "You need to install virtualenv. Google 'virtualenv install'"
+	     exit 1
+	fi
+	
+	
+	user=$1
+	function=$2
+	id=$3
+	
+	echo '{
+			"Version": "2012-10-17",
+			"Statement": [
+				{
+					"Effect": "Allow",
+					"Action": [
+						"sqs:DeleteMessage",
+						"sqs:GetQueueAttributes",
+						"sqs:ReceiveMessage",
+						"sqs:SendMessage",
+						"sqs:*"
+					],
+					"Resource": "*" 
+				},
+				{
+				"Effect": "Allow",
+				"Action": [
+					"s3:*"
+				],
+				"Resource": "*" 
+									},
+				{
+					"Effect":"Allow",
+					"Action": [
+						"logs:CreateLogGroup",
+						"logs:CreateLogStream",
+						"logs:PutLogEvents"
+					],
+					"Resource": "*"
+				}
+			]
+		}' > policyDocument.json
+	
+	echo '{
+				"Version": "2012-10-17",
+				"Statement": [
+					{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": "lambda.amazonaws.com"
+						},
+						"Action": "sts:AssumeRole" 
+					}
+				]
+			}' > rolePolicyDocument.json
+	
+	#create role policy
+	
+	echo "creation of role lambda-sqs-execution ..."
+	
+	role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+	
+	if [ $? -eq 255 ]; then 
+		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+	fi
+	
+	echo "role lambda-sqs-execution created at ARN "$role_arn
+	
+	aws iam --endpoint-url=http://localhost:4593 --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+	
+	
+	echo "Installing requirements"
+	
+	virtualenv venv -p «language»
+	
+	source venv/bin/activate
+	
+	
+	echo "Checking wheter pip3 is installed"
+	which pip3
+	if [ $? -eq 0 ]; then
+		echo "pip3 is installed, continuing..."
+	else
+	     echo "You need to install pip3. Google 'pip3 install'"
+	     exit 1
+	fi
+	
+	PIPVER="$(pip3 -V | grep -Eo "(\d+\.)+\d+" | grep -Eo "\d+" | head -1)"
+	if [ ${PIPVER} -lt 19 ]; then
+		echo "pip version is too old. installing new one"
+		curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+		python get-pip.py
+	fi
+		
+	pip3 install pytz
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "pip install pytz failed"
+	    exit 1
+	fi
+	
+	
+	pip3 install ortools
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "pip install ortools failed"
+	    exit 1
+	fi
+	
+	pip3 install -r ./src-gen/requirements.txt
+	
+			
+	echo ""
+	echo "add precompliled libraries"
+	
+	cd venv/lib/python3.6/site-packages/
+	echo "installing ortools"
+	rm -rf ortools*
+	wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
+	echo "ortools installed"
+	
+	echo "installing pandas"
+	rm -rf pandas*
+	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
+	echo "pandas installed"
+	
+	echo "installing numpy"
+	rm -rf numpy*
+	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
+	echo "numpy installed"
+	
+	echo "creating zip package"
+	zip -q -r9 ../../../../${id}\_lambda.zip .
+	echo "zip created"
+	
+	cd ../../../../
+	
+	
+	echo "«generateBodyPy(root.body,root.parameters,name,env, local)»
+	
+	«FOR fd:functionCalled.values()»
+		
+	«generatePyExpression(fd, name, local)»
+	
+	«ENDFOR»
+	" > ${function}.py
+	
+	
+	zip -g ${id}_lambda.zip ${function}.py
+	
+	deactivate
+	
+		
+	#create the lambda function
+	echo "creation of the lambda function"
+	
+	echo "zip file too big, uploading it using s3"
+	echo "creating bucket for s3"
+	aws --endpoint-url=http://localhost:4572 s3 --profile ${user} mb s3://${function}${id}bucket
+	echo "s3 bucket created. uploading file"
+	aws --endpoint-url=http://localhost:4572 s3 --profile ${user} cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+	echo "file uploaded, creating function"
+	aws --endpoint-url=http://localhost:4574 lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+	echo "lambda function created"
+	
+	
+	# clear 
+	rm -r venv/
+	rm ${function}.py
+	rm ${id}_lambda.zip
+	rm rolePolicyDocument.json
+	rm policyDocument.json
+	'''
+	
+	def CharSequence compileDockerCompose(Resource resource)'''
+	docker network create -d bridge --subnet 192.168.0.0/24 --gateway 192.168.0.1 mynet
+	echo "
+	version: '2.1'
+	
+	services:
+	 localstack:
+	   image: localstack/localstack
+	   ports:
+	     - '4567-4593:4567-4593'
+	     - '${PORT_WEB_UI-8080}:${PORT_WEB_UI-8080}'
+	   environment:
+	     - SERVICES=${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
+	     - DEBUG=${DEBUG- 1}
+	     - DATA_DIR=${DATA_DIR- }
+	     - PORT_WEB_UI=${PORT_WEB_UI- }
+	     - LAMBDA_EXECUTOR=${LAMBDA_EXECUTOR- docker}
+	     - KINESIS_ERROR_PROBABILITY=${KINESIS_ERROR_PROBABILITY- }
+	     - DOCKER_HOST=unix:///var/run/docker.sock
+	     - HOSTNAME=192.168.0.1
+	     - HOSTNAME_EXTERNAL=192.168.0.1
+	     - LOCALSTACK_HOSTNAME=192.168.0.1
+	   volumes:
+	     - '${TMPDIR:-/tmp/localstack}:/tmp/localstack'
+	     - '/var/run/docker.sock:/var/run/docker.sock' "> docker-compose.yml
+	     
+	docker-compose up -d
+	'''
+	
 	
 	def CharSequence AzureDeploy(Resource resource, String name, boolean local)
 	'''
@@ -1173,7 +1443,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 			cd ${app}${id}
 			
-			if [[ -s requirements.txt ]]; then echo "dependencies installed"; else pip3 install -r requirements.txt; fi
 			
 			rm -f host.json
 			echo '{
@@ -1269,11 +1538,46 @@ class FLYGeneratorPython extends AbstractGenerator {
 				
 			«ENDFOR»
 	'''
+	
+	def CharSequence AWSDebugUndeploy(Resource resource, String string, boolean local,boolean debug)'''
+	#!/bin/bash
+					
+			if [ $# -eq 0 ]
+			  then
+			    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+			    exit 1
+			fi
+			
+			user=$1
+			function=$2
+			id=$3
+			
+			# delete user queue
+			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
+			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+				#get «res.name»_${id} queue-url
+				
+				echo "get «res.name»-${id} queue-url"
+				queue_url=$(aws --endpoint-url=http://localhost:4576 sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
+				echo ${queue_url//\"}
+				
+				echo "delete queue at url ${queue_url//\"} "
+				aws --endpoint-url=http://localhost:4576 sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+				
+			«ENDFOR»
+	
+			«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+				#delete lambda function: «res.target.name»_${id}
+				echo "delete lambda function: «res.target.name»_${id}"
+				aws --endpoint-url=http://localhost:4574 lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+				
+			«ENDFOR»
+	'''
 
 	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
 		switch this.env {
 			   case "aws": AWSUndeploy(resource,name,local,false)
-			   case "aws-debug": AWSUndeploy(resource,name,local,true)
+			   case "aws-debug": AWSDebugUndeploy(resource,name,local,true)
 			   case "azure": AzureUndeploy(resource,name,local)
 			   default: this.env+" not supported"
 	  		}

@@ -60,6 +60,7 @@ import java.util.ArrayList
 import javax.lang.model.type.DeclaredType
 import java.util.List
 import java.util.Arrays
+import org.eclipse.xtend.lib.macro.declaration.Declaration
 
 /**
  * Generates code from your model files on save.
@@ -78,7 +79,7 @@ class FLYGenerator extends AbstractGenerator {
 	var id_execution = System.currentTimeMillis
 	var last_func_result = null
 	var deployed_function = new ArrayList<String>();
-	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","azure"));
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
 	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
@@ -105,6 +106,9 @@ class FLYGenerator extends AbstractGenerator {
 				var language =""
 				switch type_env {
 					case "aws":{
+						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+					}
+					case "aws-debug":{
 						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
 					}
 					case "azure":{
@@ -168,7 +172,7 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.Comparator;
 		import java.util.Map;
 		import java.util.Scanner;
-		«IF checkAWS()»
+		«IF checkAWS() || checkAWSDebug()»
 		import com.amazonaws.AmazonClientException;
 		import com.amazonaws.auth.AWSStaticCredentialsProvider;
 		import com.amazonaws.auth.BasicAWSCredentials;
@@ -214,6 +218,9 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.PutObjectRequest;
 		import com.amazonaws.services.s3.model.S3ObjectSummary;
 		«ENDIF»
+		«IF checkAWSDebug()»
+		import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
+		«ENDIF»
 		import com.google.gson.Gson;
 		import com.google.gson.reflect.TypeToken;
 		«IF checkAzure()»
@@ -240,6 +247,28 @@ class FLYGenerator extends AbstractGenerator {
 			static long  __id_execution =  System.currentTimeMillis();
 			
 			public static void main(String[] args) throws Exception{
+				«IF checkAWSDebug()»
+				Runtime.getRuntime().exec("chmod +x src-gen/docker-compose-script.sh");
+				ProcessBuilder __processBuilder_docker_compose = new ProcessBuilder("/bin/bash", "-c", "src-gen/docker-compose-script.sh");
+				__processBuilder_docker_compose.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+				Map<String, String> __env_docker_compose = __processBuilder_docker_compose.environment();
+				__processBuilder_docker_compose.redirectError(ProcessBuilder.Redirect.INHERIT);
+				String __path_env_docker_compose = __env_docker_compose.get("PATH");
+				if (!__path_env_docker_compose.contains("/usr/local/bin")) {
+					 __env_docker_compose.put("PATH", __path_env_docker_compose+":/usr/local/bin");
+				}
+				Process __p_docker_compose;
+				try {
+					__p_docker_compose = __processBuilder_docker_compose.start();
+					__p_docker_compose.waitFor();
+					if(__p_docker_compose.exitValue()!=0){
+						System.out.println("Error in docker-compose-script.sh ");
+						System.exit(1);
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
+				}		
+				«ENDIF»
 								
 				«FOR element : resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
 				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]»
@@ -276,8 +305,10 @@ class FLYGenerator extends AbstractGenerator {
 					«ENDIF»
 				
 				«ENDFOR»
-				«IF resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
-				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")].length > 0»
+				«IF resource.allContents.toIterable.filter(VariableDeclaration)
+				.filter[onCloud && (it.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")]
+				.filter[right instanceof DeclarationObject]
+				.filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")].length > 0»
 					if(!__s3.doesBucketExist("bucket-"+__id_execution)){
 						__s3.createBucket("bucket-"+__id_execution);
 					}
@@ -361,7 +392,7 @@ class FLYGenerator extends AbstractGenerator {
 						return '''
 							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
 							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
-							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_undeploy_«call.target.name».environment();
 							
 							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 							__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
@@ -382,6 +413,31 @@ class FLYGenerator extends AbstractGenerator {
 							}	
 							'''			
 					} 
+					case "aws-debug":{
+						return '''
+							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
+							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_undeploy_«call.target.name».environment();
+							
+							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+							__processBuilder_undeploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+							String __path_env_undeploy_«call.target.name» = __env_undeploy_«call.target.name».get("PATH");
+							if (!__path_env_undeploy_«call.target.name».contains("/usr/local/bin")) {
+								 __env_undeploy_«call.target.name».put("PATH", __path_env_undeploy_«call.target.name»+":/usr/local/bin");
+							}
+							Process __p_undeploy_«call.target.name»;
+							try {
+								__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
+								__p_undeploy_«call.target.name».waitFor();
+								if(__p_undeploy_«call.target.name».exitValue()!=0){
+									System.out.println("Error in «call.target.name»_undeploy.sh ");
+									System.exit(1);
+								}
+							} catch (Exception e) {
+								e.printStackTrace();
+							}	
+							'''			
+					}
 					case "azure":{
 						return '''
 						«cred».clear("./flyapp«cred»"+__id_execution,"./.env");
@@ -397,7 +453,7 @@ class FLYGenerator extends AbstractGenerator {
 		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
 			if (!deployed_function.contains(call.target.name)){
 				deployed_function.add(call.target.name)
-				if((call.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")){
+				if((call.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")){
 					var user = (call.environment.right as DeclarationObject).features.get(1).value_s
 					var cred = call.environment.name
 					return '''
@@ -538,6 +594,35 @@ class FLYGenerator extends AbstractGenerator {
 							static ExecutorService __thread_pool_«dec.name» = Executors.newFixedThreadPool(«((dec.right as DeclarationObject).features.get(1)).value_t»);
 							'''
 					}
+					case "aws-debug":{
+						var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+						var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+						var region = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+						return '''
+							
+							static BasicAWSCredentials «dec.name» = new BasicAWSCredentials("«access_id_key»", "«secret_access_key»");
+							
+							static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4576", "«region»"))
+								.build();
+							
+							static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4593", "«region»"))
+								.build();
+								
+							static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4574", "«region»"))
+								.build();
+								
+							static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4572", "«region»"))
+								.build();
+						'''
+					}
 					case "aws": {
 						var access_id_key = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
 						var secret_access_key = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
@@ -595,14 +680,14 @@ class FLYGenerator extends AbstractGenerator {
 							«ENDIF»
 						'''
 					}
-					case "File":{
-						var path = (dec.right as DeclarationObject).features.get(1).value_s
+					case "file":{
+						var path = (dec.right as DeclarationObject).features.get(2).value_s
 						typeSystem.get(scope).put(dec.name, "File")
 						return '''
 							File «dec.name» = new File("«path»");
 						'''
 					}
-					case "Dataframe":{
+					case "dataframe":{
 							var path = (dec.right as DeclarationObject).features.get(2).value_s
 				
 								typeSystem.get(scope).put(dec.name, "Table")
@@ -781,7 +866,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
-					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("aws") ||
+					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws") ||
 						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
 							(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.length==3
 						)){
@@ -980,6 +1065,23 @@ class FLYGenerator extends AbstractGenerator {
 							__s3.putObject(__putObjectRequest);
 						}
 					'''
+				case "aws-debug": 	
+					return '''
+						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«name_file»_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals("«name_file_ext»")){
+						    	__exists_«name_file»_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«name_file»_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3.putObject(__putObjectRequest);
+						}
+					'''
 				
 				case "azure":
 					return '''
@@ -1006,7 +1108,7 @@ class FLYGenerator extends AbstractGenerator {
 				«ENDIF»
 			'''
 		}
-		else if (env.equals("aws")) {
+		else if (env.contains("aws")) {
 			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
 			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
@@ -1073,6 +1175,28 @@ class FLYGenerator extends AbstractGenerator {
 		var local = local_env.name
 		switch env {
 			case "aws":
+			return '''
+				__sqs_«env_name».createQueue(new CreateQueueRequest("«dec.name»-"+__id_execution));
+				
+				//for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+					__thread_pool_«local».submit(new Callable<Object>() {
+						@Override
+						public Object call() throws Exception {
+							while(__wait_on_«dec.name») {
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«dec.name»-"+__id_execution).getQueueUrl()).
+										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
+								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
+								for(Message msg : __res.getMessages()) { 
+									«dec.name».put(msg.getBody());
+									__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«dec.name»-"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+								}
+							}
+							return null;
+						}
+					});
+				//}
+			'''
+			case "aws-debug":
 			return '''
 				__sqs_«env_name».createQueue(new CreateQueueRequest("«dec.name»-"+__id_execution));
 				
@@ -1343,59 +1467,66 @@ class FLYGenerator extends AbstractGenerator {
 
 			return s
 		}
-		if (expression.target.typeobject.equals("dat")) {
-			if(expression.feature.equals("rows")){
-				return '''
-				HashMap<Integer, HashMap<String,Object> > __«expression.target.name»_rows = new HashMap<Integer, HashMap<String,Object>>();
-				    	for(int __i=0; __i<«expression.target.name».rowCount();__i++) {
-				    		HashMap<String, Object> __tmp = new HashMap<String, Object>();
-				    		for (String __col : «expression.target.name».columnNames()) {
-				    			__tmp.put(__col,«expression.target.name».get(__i, «expression.target.name».columnIndex(__col)));
-							}
-							 		__«expression.target.name»_rows.put(__i,__tmp);
-							 	}
-			'''
-			}else if(expression.feature.equals("delete")){
-				var path = ((expression.target as VariableDeclaration).right as DeclarationObject).features.get(1).value_s;
-				var filename = path.split("/").last 
-				return '''
-					«IF (expression.target as VariableDeclaration).onCloud»
-						try {
-						    s3.deleteObject("bucket-"+__id_execution), «filename»);
-						} catch (AmazonServiceException e) {
-						    System.err.println(e.getErrorMessage());
-						    System.exit(1);
-						}
-					«ENDIF»
-				'''
-			}
-			
-		}else if(expression.target.typeobject.equals("channel")){
-			if(expression.feature.equals("close")){
-				//println(((expression.target as ChannelDeclaration).environment.right as DeclarationObject).features.get(0))
-				return '''
-					«IF !((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
-						__wait_on_«expression.target.name» = false;
-					«ELSEIF ((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
-					((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.length==3»
-						__socket_server_«expression.target.name».close();
-					«ENDIF»
-				'''
-			}
-		} else {
-			var s = expression.target.name + "." + expression.feature + "("
-			for (exp : expression.expressions) {
-				s += generateArithmeticExpression(exp, scope)
-				if (exp != expression.expressions.last()) {
-					s += ","
+		if (expression.target.right instanceof DeclarationObject) {
+			var type = (expression.target.right as DeclarationObject).features.get(0).value_s
+			switch (type){
+				case "dataframe":{
+					if(expression.feature.equals("rows")){
+						return '''
+						HashMap<Integer, HashMap<String,Object> > __«expression.target.name»_rows = new HashMap<Integer, HashMap<String,Object>>();
+						    	for(int __i=0; __i<«expression.target.name».rowCount();__i++) {
+						    		HashMap<String, Object> __tmp = new HashMap<String, Object>();
+						    		for (String __col : «expression.target.name».columnNames()) {
+						    			__tmp.put(__col,«expression.target.name».get(__i, «expression.target.name».columnIndex(__col)));
+									}
+									 		__«expression.target.name»_rows.put(__i,__tmp);
+									 	}
+					'''
+					}else if(expression.feature.equals("delete")){
+						var path = ((expression.target as VariableDeclaration).right as DeclarationObject).features.get(1).value_s;
+						var filename = path.split("/").last 
+						return '''
+							«IF (expression.target as VariableDeclaration).onCloud»
+								try {
+								    s3.deleteObject("bucket-"+__id_execution), «filename»);
+								} catch (AmazonServiceException e) {
+								    System.err.println(e.getErrorMessage());
+								    System.exit(1);
+								}
+							«ENDIF»
+						'''
+					}
 				}
-			}
-			s += ")"
-			if (t) {
-				s += ";"
-			}
-			return s
+				case "channel":{
+					if(expression.feature.equals("close")){
+						println("channel on "+((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s)
+						return '''
+							«IF !((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
+								__wait_on_«expression.target.name» = false;
+							«ELSEIF ((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
+							((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.length==3»
+								__socket_server_«expression.target.name».close();
+							«ENDIF»
+						'''
+					}
+				}
+				default :{
+					var s = expression.target.name + "." + expression.feature + "("
+					for (exp : expression.expressions) {
+						s += generateArithmeticExpression(exp, scope)
+						if (exp != expression.expressions.last()) {
+							s += ","
+						}
+					}
+					s += ")"
+					if (t) {
+						s += ";"
+					}
+					return s
+				}
+			} 
 		}
+	
 	}
 
 	// methods for statement
@@ -1434,6 +1565,7 @@ class FLYGenerator extends AbstractGenerator {
 		switch env {
 			case "smp": return generateLocalFlyFunction(call, scope)
 			case "aws": return generateAWSFlyFunctionCall(call, scope)
+			case "aws-debug": return generateAWSFlyFunctionCall(call, scope)
 			case "azure": return generateAzureFlyFunctionCall(call, scope)
 		}
 	}
@@ -2058,6 +2190,8 @@ class FLYGenerator extends AbstractGenerator {
 				return '''«(send.target as VariableDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
 			case "aws":
 				return '''__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»-"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));'''
+			case "aws-debug":
+				return '''__sqs_«env_name».sendMessage(new SendMessageRequest(__sqs_«env_name».getQueueUrl("«send.target.name»-"+__id_execution).getQueueUrl(), String.valueOf(«generateArithmeticExpression(send.expression,scope)»)));'''
 			case "azure":
 				return '''«env_name».addToQueue("«send.target.name»-"+__id_execution,String.valueOf(«generateArithmeticExpression(send.expression,scope)»))'''
 		}
@@ -2320,12 +2454,12 @@ class FLYGenerator extends AbstractGenerator {
 	def generateFunctionDefinition(FunctionDefinition definition) {
 		typeSystem.put(definition.name, new HashMap<String, String>())
 		for (exp : res.allContents.toIterable.filter(ConstantDeclaration)) {
-			typeSystem.get(definition.name).put(exp.name,typeSystem.get("main").get(exp.name))
+			typeSystem.get(definition.name).put(exp.name,typeSystem.get("main").get( exp.name))
 		}
-		var returnExp = checkReturn(definition.body)
-		println(definition.name)
+		
+		var returnExp = checkReturn(definition.body) 
+		
 		var s = '''
-			
 				protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
 				«FOR el : definition.body.expressions»
 				«generateExpression(el,definition.name)»
@@ -2336,10 +2470,13 @@ class FLYGenerator extends AbstractGenerator {
 				}
 				
 		'''
+		println("generate function "+ definition.name)
+		println("typesystem :")
+		println (typeSystem.get(definition.name))
+		println(definition.name)
 		if (definition.body.expressions.filter(NativeExpression).length !=0)
 			return ''''''
-		else
-			return s
+		return s
 	}
 	
 	
@@ -2350,7 +2487,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (exp instanceof LocalFunctionCall && ((exp as LocalFunctionCall).target.name == name)) {
 				var typeobject = valuateArithmeticExpression(
 					((exp as LocalFunctionCall).input as LocalFunctionInput).inputs.get(pos), "main")
-				println(typeobject)
+				println("params: "+param+" ----- type object "+ typeobject)
 				if (typeobject == "Table") {
 					(param as VariableDeclaration).typeobject = "dat"
 					typeSystem.get(name).put((param as VariableDeclaration).name, "Table");
@@ -2467,7 +2604,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (variable.right instanceof DeclarationObject) {
 				var type = (variable.right as DeclarationObject).features.get(0).value_s
 				switch (type) {
-					case "Dataframe": {
+					case "dataframe": {
 						return "Table"
 					}
 					case "channel":{
@@ -2476,7 +2613,7 @@ class FLYGenerator extends AbstractGenerator {
 					case "random":{
 						return "Random"
 					}
-					case "File":{
+					case "file":{
 						return "File"
 					}
 					default: {
@@ -2619,6 +2756,19 @@ class FLYGenerator extends AbstractGenerator {
 		){
 			if ((env.right as DeclarationObject).features.get(0).value_s.equals("aws"))
 				return true
+		}
+		return false
+	}
+	
+	def Boolean checkAWSDebug(){
+		for(VariableDeclaration env: res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+			filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]
+		){
+			if ((env.right as DeclarationObject).features.get(0).value_s.equals("aws-debug")){
+				return true
+			}
+			
+				
 		}
 		return false
 	}
