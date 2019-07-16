@@ -250,9 +250,7 @@ class FLYGenerator extends AbstractGenerator {
 				«IF checkAWSDebug()»
 				Runtime.getRuntime().exec("chmod +x src-gen/docker-compose-script.sh");
 				ProcessBuilder __processBuilder_docker_compose = new ProcessBuilder("/bin/bash", "-c", "src-gen/docker-compose-script.sh");
-				__processBuilder_docker_compose.redirectOutput(ProcessBuilder.Redirect.INHERIT);
 				Map<String, String> __env_docker_compose = __processBuilder_docker_compose.environment();
-				__processBuilder_docker_compose.redirectError(ProcessBuilder.Redirect.INHERIT);
 				String __path_env_docker_compose = __env_docker_compose.get("PATH");
 				if (!__path_env_docker_compose.contains("/usr/local/bin")) {
 					 __env_docker_compose.put("PATH", __path_env_docker_compose+":/usr/local/bin");
@@ -260,10 +258,13 @@ class FLYGenerator extends AbstractGenerator {
 				Process __p_docker_compose;
 				try {
 					__p_docker_compose = __processBuilder_docker_compose.start();
-					__p_docker_compose.waitFor();
-					if(__p_docker_compose.exitValue()!=0){
-						System.out.println("Error in docker-compose-script.sh ");
-						System.exit(1);
+					BufferedReader __p_docker_compose_output = new BufferedReader(new InputStreamReader(__p_docker_compose.getInputStream()));
+					String __docker_compose_output_line = __p_docker_compose_output.readLine();
+					while(__docker_compose_output_line !=null) {
+						System.out.println(__docker_compose_output_line);
+						if (__docker_compose_output_line.contains("Ready."))
+							break;
+						__docker_compose_output_line=__p_docker_compose_output.readLine();
 					}
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -604,22 +605,23 @@ class FLYGenerator extends AbstractGenerator {
 							
 							static AmazonSQS __sqs_«dec.name»  = AmazonSQSClient.builder()
 								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4576", "«region»"))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4576", "us-east-1"))
 								.build();
 							
 							static AmazonIdentityManagement __iam_«dec.name» = AmazonIdentityManagementClientBuilder.standard()
 								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4593", "«region»"))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4593", "us-east-1"))
 								.build();
 								
 							static AWSLambda __lambda_«dec.name» = AWSLambdaClientBuilder.standard()
 								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4574", "«region»"))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4574", "us-east-1"))
 								.build();
 								
 							static AmazonS3 __s3_«dec.name» = AmazonS3Client.builder()
 								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
-								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4572", "«region»"))
+								.withEndpointConfiguration(new EndpointConfiguration("http://192.168.0.1:4572", "us-east-1"))
+								.withPathStyleAccessEnabled(true)
 								.build();
 						'''
 					}

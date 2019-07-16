@@ -1173,6 +1173,17 @@ class FLYGeneratorPython extends AbstractGenerator {
 	     exit 1
 	fi
 	
+	aws configure list --profile dummy_fly_debug
+	if [ $? -eq 0 ]; then
+		echo "dummy user found, continuing..."
+	else
+	     echo "creating dummy user..."
+	     aws configure set aws_access_key_id dummy --profile dummy_fly_debug
+	     aws configure set aws_secret_access_key dummy --profile dummy_fly_debug
+	     aws configure set region us-east-1 --profile dummy_fly_debug
+	     aws configure set output json --profile dummy_fly_debug
+	     echo "dummy user created"
+	fi
 	
 	user=$1
 	function=$2
@@ -1228,15 +1239,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	echo "creation of role lambda-sqs-execution ..."
 	
-	role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+	role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 	
 	if [ $? -eq 255 ]; then 
-		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 	fi
 	
 	echo "role lambda-sqs-execution created at ARN "$role_arn
 	
-	aws iam --endpoint-url=http://localhost:4593 --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+	aws iam --endpoint-url=http://localhost:4593 --profile dummy_fly_debug put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
 	
 	
 	echo "Installing requirements"
@@ -1334,11 +1345,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	echo "zip file too big, uploading it using s3"
 	echo "creating bucket for s3"
-	aws --endpoint-url=http://localhost:4572 s3 --profile ${user} mb s3://${function}${id}bucket
+	aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug mb s3://${function}${id}bucket
 	echo "s3 bucket created. uploading file"
-	aws --endpoint-url=http://localhost:4572 s3 --profile ${user} cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+	aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 	echo "file uploaded, creating function"
-	aws --endpoint-url=http://localhost:4574 lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+	aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
 	echo "lambda function created"
 	
 	
@@ -1357,26 +1368,26 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	services:
 	 localstack:
-	   image: localstack/localstack
+	   image: localstack/localstack:latest
 	   ports:
 	     - '4567-4593:4567-4593'
-	     - '${PORT_WEB_UI-8080}:${PORT_WEB_UI-8080}'
+	     - '\${PORT_WEB_UI-8080}:\${PORT_WEB_UI-8080}'
 	   environment:
-	     - SERVICES=${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
-	     - DEBUG=${DEBUG- 1}
-	     - DATA_DIR=${DATA_DIR- }
-	     - PORT_WEB_UI=${PORT_WEB_UI- }
-	     - LAMBDA_EXECUTOR=${LAMBDA_EXECUTOR- docker}
-	     - KINESIS_ERROR_PROBABILITY=${KINESIS_ERROR_PROBABILITY- }
+	     - SERVICES\=${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
+	     - DEBUG=\${DEBUG- 1}
+	     - DATA_DIR=\${DATA_DIR- }
+	     - PORT_WEB_UI=\${PORT_WEB_UI- }
+	     - LAMBDA_EXECUTOR=\${LAMBDA_EXECUTOR- docker}
+	     - KINESIS_ERROR_PROBABILITY=\${KINESIS_ERROR_PROBABILITY- }
 	     - DOCKER_HOST=unix:///var/run/docker.sock
 	     - HOSTNAME=192.168.0.1
 	     - HOSTNAME_EXTERNAL=192.168.0.1
 	     - LOCALSTACK_HOSTNAME=192.168.0.1
 	   volumes:
-	     - '${TMPDIR:-/tmp/localstack}:/tmp/localstack'
+	     - '\${TMPDIR:-/tmp/localstack}:/tmp/localstack'
 	     - '/var/run/docker.sock:/var/run/docker.sock' "> docker-compose.yml
 	     
-	docker-compose up -d
+	docker-compose up
 	'''
 	
 	
@@ -1541,37 +1552,38 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	def CharSequence AWSDebugUndeploy(Resource resource, String string, boolean local,boolean debug)'''
 	#!/bin/bash
-					
-			if [ $# -eq 0 ]
-			  then
-			    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
-			    exit 1
-			fi
-			
-			user=$1
-			function=$2
-			id=$3
-			
-			# delete user queue
-			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
-			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
-				#get «res.name»_${id} queue-url
-				
-				echo "get «res.name»-${id} queue-url"
-				queue_url=$(aws --endpoint-url=http://localhost:4576 sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
-				echo ${queue_url//\"}
-				
-				echo "delete queue at url ${queue_url//\"} "
-				aws --endpoint-url=http://localhost:4576 sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
-				
-			«ENDFOR»
 	
-			«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-				#delete lambda function: «res.target.name»_${id}
-				echo "delete lambda function: «res.target.name»_${id}"
-				aws --endpoint-url=http://localhost:4574 lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
-				
-			«ENDFOR»
+	docker-compose down				
+«««			if [ $# -eq 0 ]
+«««			  then
+«««			    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+«««			    exit 1
+«««			fi
+«««			
+«««			user=$1
+«««			function=$2
+«««			id=$3
+«««			
+«««			# delete user queue
+«««			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
+«««			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+«««				#get «res.name»_${id} queue-url
+«««				
+«««				echo "get «res.name»-${id} queue-url"
+«««				queue_url=$(aws --endpoint-url=http://localhost:4576 sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
+«««				echo ${queue_url//\"}
+«««				
+«««				echo "delete queue at url ${queue_url//\"} "
+«««				aws --endpoint-url=http://localhost:4576 sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+«««				
+«««			«ENDFOR»
+«««	
+«««			«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+«««				#delete lambda function: «res.target.name»_${id}
+«««				echo "delete lambda function: «res.target.name»_${id}"
+«««				aws --endpoint-url=http://localhost:4574 lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+«««				
+«««			«ENDFOR»
 	'''
 
 	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
