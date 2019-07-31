@@ -288,7 +288,12 @@ LiteralExpression returns ArithmeticExpression:
 	ObjectLiteral 	|
 	VariableLiteral |
 	RangeLiteral 	|
-	FloatLiteral
+	FloatLiteral	|
+	EnviromentLiteral
+;
+
+EnviromentLiteral:
+	{EnvironemtLiteral} 'execution_environment'
 ;
 
 TimeFunction returns ArithmeticExpression:

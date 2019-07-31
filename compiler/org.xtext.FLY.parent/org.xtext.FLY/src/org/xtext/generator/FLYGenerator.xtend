@@ -61,6 +61,7 @@ import javax.lang.model.type.DeclaredType
 import java.util.List
 import java.util.Arrays
 import org.eclipse.xtend.lib.macro.declaration.Declaration
+import org.xtext.fLY.EnvironemtLiteral
 
 /**
  * Generates code from your model files on save.
@@ -78,7 +79,7 @@ class FLYGenerator extends AbstractGenerator {
 	var file_deploy_id = 0
 	var id_execution = System.currentTimeMillis
 	var last_func_result = null
-	var deployed_function = new ArrayList<String>();
+	var deployed_function = new HashMap<String,ArrayList<String>>();
 	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
 	Resource res = null
 
@@ -107,12 +108,15 @@ class FLYGenerator extends AbstractGenerator {
 				switch type_env {
 					case "aws":{
 						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+						
 					}
 					case "aws-debug":{
 						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+						
 					}
 					case "azure":{
 						language = ((element.environment.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s;
+						
 					}
 				}
 				
@@ -232,6 +236,7 @@ class FLYGenerator extends AbstractGenerator {
 			
 			static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
 			static HashMap<String,HashMap<String,Integer>> __fly_async_invocation_id = new HashMap<String,HashMap<String,Integer>>();
+			static final String __environment = "smp";
 			«FOR element : (resource.allContents.toIterable.filter(Expression))»
 				«IF element instanceof VariableDeclaration»
 					«IF element.right instanceof DeclarationObject 
@@ -314,15 +319,35 @@ class FLYGenerator extends AbstractGenerator {
 						__s3.createBucket("bucket-"+__id_execution);
 					}
 				«ENDIF»
-								
+				
 				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")]»
 						«deployFileOnCloud(element,file_deploy_id++)»
 				«ENDFOR»
+
+				ExecutorService __thread_pool_deploy_on_cloud = Executors.newFixedThreadPool((int) __fly_environment.get("«resource.allContents.toIterable.filter(VariableDeclaration)
+				.filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
+				&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))].get(0).name»").get("nthread"));	
+				ArrayList<Future<Object>> __termination_deploy_on_cloud = new ArrayList();		
 				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)
 				.filter[!(environment.right as DeclarationObject).features.get(0).value_s.equals("smp")]»
 					«deployFlyFunctionOnCloud(element)»
 				«ENDFOR»
+				
+				for (Future<Object> f: __termination_deploy_on_cloud){
+					try {
+						f.get();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} catch (ExecutionException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+				
+				System.out.println("Deploy effettuato");
+				
 				«FOR element : resource.allContents.toIterable.filter(Expression)»
 					«IF checkBlock(element.eContainer)==false»
 						«generateExpression(element,"main")»
@@ -383,11 +408,11 @@ class FLYGenerator extends AbstractGenerator {
 	'''
 		
 		def undeployFlyFunctionOnCloud(FlyFunctionCall call) {
-			if(deployed_function.contains(call.target.name)){
+			var env = (call.environment.right as DeclarationObject).features.get(0).value_s
+			if(deployed_function.get(env).contains(call.target.name)){
 				deployed_function.remove(call.target.name)
 				var user = (call.environment.right as DeclarationObject).features.get(1).value_s
 				var cred = call.environment.name
-				var env = (call.environment.right as DeclarationObject).features.get(0).value_s
 				switch env {
 					case "aws":{
 						return '''
@@ -452,38 +477,53 @@ class FLYGenerator extends AbstractGenerator {
 		}
 		
 		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
-			if (!deployed_function.contains(call.target.name)){
-				deployed_function.add(call.target.name)
-				if((call.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")){
+			var environment = (call.environment.right as DeclarationObject).features.get(0).value_s
+			println(deployed_function)
+			if (!deployed_function.get(environment).contains(call.target.name)){
+				deployed_function.get(environment).add(call.target.name)
+				
+				if(environment.contains("aws")){
 					var user = (call.environment.right as DeclarationObject).features.get(1).value_s
 					var cred = call.environment.name
 					return '''
-						Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_deploy.sh");
-						ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_deploy.sh «user» «call.target.name» "+__id_execution);
-						__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
-						Map<String, String> __env_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
-						__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
-						String __path_env_deploy_«call.target.name» = __env_deploy_«call.target.name».get("PATH");
-						if (!__path_env_deploy_«call.target.name».contains("/usr/local/bin")) {
-							 __env_deploy_«call.target.name».put("PATH", __path_env_deploy_«call.target.name»+":/usr/local/bin");
-						}
-						Process __p_deploy_«call.target.name»;
-						try {
-							__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
-							__p_deploy_«call.target.name».waitFor();
-							if(__p_deploy_«call.target.name».exitValue()!=0){
-								System.out.println("Error in «call.target.name»_deploy.sh ");
-								System.exit(1);
+						__termination_deploy_on_cloud.add(__thread_pool_deploy_on_cloud.submit( new Callable<Object> (){
+							@Override
+							public Object call() throws Exception{
+								Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«environment»_deploy.sh");
+								ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«environment»_deploy.sh «user» «call.target.name» "+__id_execution);
+								__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
+								Map<String, String> __env_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
+								__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
+								String __path_env_deploy_«call.target.name» = __env_deploy_«call.target.name».get("PATH");
+								if (!__path_env_deploy_«call.target.name».contains("/usr/local/bin")) {
+									 __env_deploy_«call.target.name».put("PATH", __path_env_deploy_«call.target.name»+":/usr/local/bin");
+								}
+								Process __p_deploy_«call.target.name»;
+								try {
+									__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
+									__p_deploy_«call.target.name».waitFor();
+									if(__p_deploy_«call.target.name».exitValue()!=0){
+										System.out.println("Error in «call.target.name»_«environment»_deploy.sh ");
+										System.exit(1);
+									}
+								} catch (Exception e) {
+									e.printStackTrace();
+								}	
+								return null;
 							}
-						} catch (Exception e) {
-							e.printStackTrace();
-						}		
+						}));
+						
 						'''	
 				}else if((call.environment.right as DeclarationObject).features.get(0).value_s.equals("azure")) {
-					
 					return '''
-					«call.environment.name».publishFunction("«call.target.name»","src-gen/«call.target.name»_deploy.sh");
-					'''
+						__termination_deploy_on_cloud.add(__thread_pool_deploy_on_cloud.submit( new Callable<Object> (){
+							@Override
+							public Object call() throws Exception{
+								«call.environment.name».publishFunction("«call.target.name»","src-gen/«call.target.name»_«environment»_deploy.sh");
+								return null;
+							}
+						}));
+						'''	
 				}
 			}
 			else 
@@ -1101,6 +1141,7 @@ class FLYGenerator extends AbstractGenerator {
 	def setEnvironmentDeclarationInfo(VariableDeclaration dec){
 		var env = ((dec.right as DeclarationObject).features.get(0)).value_s
 		var dec_name = dec.name
+		deployed_function.put(env,new ArrayList())
 		if (env.equals("smp")){
 			return '''
 				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
@@ -1265,7 +1306,9 @@ class FLYGenerator extends AbstractGenerator {
 			return '''"«expression.value»"'''
 		} else if (expression instanceof FloatLiteral) {
 			return '''«expression.value»'''
-		} else if (expression instanceof VariableLiteral) {
+		} else if(expression instanceof EnvironemtLiteral){
+			return '''__environment'''
+		}else if (expression instanceof VariableLiteral) {
 			return '''«expression.variable.name»'''
 		} else if (expression instanceof NameObject) {
 			if(expression.name instanceof VariableDeclaration && expression.name.right!=null && list_environment.contains((expression.name.right as DeclarationObject).features.get(0).value_s)){

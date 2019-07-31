@@ -48,8 +48,9 @@ import org.xtext.fLY.WhileExpression
 import org.xtext.fLY.PostfixOperation
 import org.xtext.fLY.ArrayDefinition
 import org.xtext.fLY.FlyFunctionCall
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.util.ArrayList
+import java.util.Arrays
+import org.xtext.fLY.EnvironemtLiteral
 
 class FLYGeneratorPython extends AbstractGenerator {
 	String name = null
@@ -66,6 +67,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	Resource resourceInput
 	boolean isLocal
 	boolean isAsync
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
 
 	def generatePython(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context, String name_file,
 		FunctionDefinition func, VariableDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
@@ -119,13 +121,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 		}else {
 			if(env.equals("aws-debug"))
 				fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
-			fsa.generateFile(root.name + "_deploy.sh", input.compileScriptDeploy(root.name, false))
-			fsa.generateFile(root.name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
+			fsa.generateFile(root.name +"_"+ env +"_deploy.sh", input.compileScriptDeploy(root.name, false))
+			fsa.generateFile(root.name +"_"+ env + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
 		}
-
-		
-
-		
 	}
 	
 	def channelsNames(BlockExpression exps) {
@@ -134,12 +132,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 		val chRecvs = resourceInput.allContents
 				.filter[it instanceof ChannelReceive]
 				.filter[functionContainer(it) === root.name]
+				.filter[((it as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")] 
 				.map[it as ChannelReceive]
 				.map[it.target as VariableDeclaration]
+				
 				.map[it.name]
 		val chSends = resourceInput.allContents
 				.filter[it instanceof ChannelSend]
 				.filter[functionContainer(it) === root.name]
+				.filter[((it as ChannelSend).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")] 
 				.map[it as ChannelSend]
 				.map[it.target as VariableDeclaration]
 				.map[it.name]
@@ -203,7 +204,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				
 		def main(event):
 			«FOR exp : parameters»
-				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") »
 					__columns=json.loads(event)[0].keys()
 					«(exp as VariableDeclaration).name» = pd.read_json(event)
 					«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
@@ -237,17 +238,14 @@ class FLYGeneratorPython extends AbstractGenerator {
 			import pandas as pd
 			import json
 			
-			«IF env == "aws"»				
+			«IF env.contains("aws")»				
 			import boto3
-			sqs = boto3.resource('sqs')
+			«IF env.equals("aws")»
+				sqs = boto3.resource('sqs')
+			«ELSE»
+				sqs = boto3.resource('sqs',endpoint_url='http://192.168.0.1:4576')
+			«ENDIF»
 
-			«FOR chName : channelNames»
-				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
-			«ENDFOR»
-			«ELSEIF env == "aws-debug"»
-			import boto3
-			sqs = boto3.resource('sqs',endpoint_url='http://192.168.0.1:4576')
-			
 			«FOR chName : channelNames»
 				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
 			«ENDFOR»
@@ -259,11 +257,12 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 			«IF env.contains("aws") »			
 			def handler(event,context):
-				
+				__environment = 'aws'
 				id_func=event['id']
 				data = event['data']
 			«ELSEIF env == "azure"»
 			def main(req: func.HttpRequest):
+				__environment = 'azure'
 				__queue_service = QueueService(account_name='"${storageName}"', account_key='"${storageKey}"')
 				__queue_service.encode_function = QueueMessageFormat.text_base64encode
 				__event = req.get_json()
@@ -271,12 +270,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 				data = __event['data']
 			«ENDIF»
 				«FOR exp : parameters»
-					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") || typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
 						__columns = data[0].keys()
 						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
-					«ELSEIF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
-						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 					«ELSE»
 						«(exp as VariableDeclaration).name» = data # TODO check
 					«ENDIF»
@@ -734,6 +731,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 			return '''«exp.value.toFirstUpper»'''
 		} else if (exp instanceof FloatLiteral) {
 			return '''«exp.value»'''
+		} else if(exp instanceof EnvironemtLiteral){
+			return '''__environment'''
 		}
 		if (exp instanceof StringLiteral) {
 			return ''' '«exp.value»' '''
@@ -752,7 +751,12 @@ class FLYGeneratorPython extends AbstractGenerator {
 				return '''int(time.time() * 1000)'''
 			}
 		} else if (exp instanceof NameObject) {
-			return '''«(exp.name as VariableDeclaration).name»['«exp.value»']'''
+			if ((exp.name.right instanceof DeclarationObject) && list_environment.contains((exp.name.right as DeclarationObject).features.get(0).value_s)){
+				return '''__environment'''
+			}else{
+				return '''«(exp.name as VariableDeclaration).name»['«exp.value»']'''
+			}
+			
 		} else if (exp instanceof IndexObject) {
 			if (exp.indexes.length == 1) {
 				return '''«(exp.name as VariableDeclaration).name»[«generatePyArithmeticExpression(exp.indexes.get(0).value, scope, local)»]'''
@@ -815,7 +819,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			return "String"
 		} else if (exp instanceof FloatLiteral) {
 			return "Double"
-		} else if (exp instanceof VariableLiteral) {
+		} else if (exp instanceof VariableLiteral) { // TODO  fix with the current grammar
 			val variable = exp.variable
 			if (variable.typeobject.equals("dat")) {
 				return "Table"
@@ -1373,7 +1377,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	     - '4567-4593:4567-4593'
 	     - '\${PORT_WEB_UI-8080}:\${PORT_WEB_UI-8080}'
 	   environment:
-	     - SERVICES\=${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
+	     - SERVICES=\${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
 	     - DEBUG=\${DEBUG- 1}
 	     - DATA_DIR=\${DATA_DIR- }
 	     - PORT_WEB_UI=\${PORT_WEB_UI- }
