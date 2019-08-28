@@ -84,49 +84,51 @@ class FLYGenerator extends AbstractGenerator {
 	Resource res = null
 
 	override void doGenerate(Resource resource, IFileSystemAccess2 fsa, IGeneratorContext context) {
-		res = resource;
-		var name_extension = resource.URI.toString.split('/').last
-		name = name_extension.toString.split('.fly').get(0)
-		// generate .java file
-		typeSystem.put("main", new HashMap<String, String>())
-		fsa.generateFile(name + ".java", resource.compileJava)
-		// generate .js or .py file
-		for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-			var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
-				value_s;
-			var async = element.isAsync;
-			if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
-				if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
-					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
-				}else{
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
-				}	
-			}
-			println("dasdasdsa "+type_env)
-			if (type_env != "smp") {
-				var language =""
-				switch type_env {
-					case "aws":{
-						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
-						
-					}
-					case "aws-debug":{
-						language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
-						
-					}
-					case "azure":{
-						language = ((element.environment.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s;
-						
-					}
+		if(resource.allContents.size >0 ){
+			res = resource;
+			var name_extension = resource.URI.toString.split('/').last
+			name = name_extension.toString.split('.fly').get(0)
+			// generate .java file
+			typeSystem.put("main", new HashMap<String, String>())
+			fsa.generateFile(name + ".java", resource.compileJava)
+			// generate .js or .py file
+			for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
+				var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
+					value_s;
+				var async = element.isAsync;
+				if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
+					if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
+						pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
+					}else{
+						jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
+					}	
 				}
-				
-				if (language.contains("python")){
-					pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async); 
-				}else if (language.contains("nodejs")) {
-					jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async);
+				if (type_env != "smp") {
+					var language =""
+					switch type_env {
+						case "aws":{
+							language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+							
+						}
+						case "aws-debug":{
+							language = ((element.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s;
+							
+						}
+						case "azure":{
+							language = ((element.environment.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s;
+							
+						}
+					}
+					
+					if (language.contains("python")){
+						pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async); 
+					}else if (language.contains("nodejs")) {
+						jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,false,async);
+					}
 				}
 			}
 		}
+		
 	}
 		
 	
