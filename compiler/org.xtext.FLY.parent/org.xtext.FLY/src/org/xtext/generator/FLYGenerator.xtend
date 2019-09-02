@@ -910,7 +910,9 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
-					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws") ||
+					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")	||
+						(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws-debug") ||
+						(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("azure") ||
 						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
 							(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.length==3
 						)){
@@ -2306,7 +2308,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 			'''
 		} else if (object instanceof VariableLiteral) {
-			//println((object as VariableLiteral).variable)
+			println((object as VariableLiteral).variable)
 			if (((object as VariableLiteral).variable.typeobject.equals('var') &&
 				((object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("HashMap")) {
