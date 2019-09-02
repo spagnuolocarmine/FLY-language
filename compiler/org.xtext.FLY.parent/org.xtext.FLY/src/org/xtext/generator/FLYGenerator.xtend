@@ -2109,13 +2109,13 @@ class FLYGenerator extends AbstractGenerator {
 					int __initial_«call.target.name»_«func_ID»=0;
 					int __num_proc_«call.target.name»_«func_ID» = (int) __fly_environment.get("«cred»").get("nthread");
 					ArrayList<Integer> __splits_«call.target.name»_«func_ID» = new ArrayList<Integer>();
-					for(int __i=0;__i<__num_proc;__i++) {
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++) {
 						if(__i<(__num_row_«call.target.name»_«func_ID»%__num_proc_«call.target.name»_«func_ID»)) {
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1));
 							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)+1;
 						}else{
 							__splits_«call.target.name»_«func_ID».add( __initial_«call.target.name»_«func_ID»+((__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»)));
-							__initial+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
+							__initial_«call.target.name»_«func_ID»+=(__num_row_«call.target.name»_«func_ID»/__num_proc_«call.target.name»_«func_ID»);
 						}
 					}				 
 					
@@ -2138,7 +2138,7 @@ class FLYGenerator extends AbstractGenerator {
 								return null;
 							}
 						});
-					__sync_list_«call.target.name».add(f);
+					__sync_list_«call.target.name»_«func_ID».add(f);
 					}
 				 '''
 			}else if (call.input.f_index instanceof VariableLiteral &&
