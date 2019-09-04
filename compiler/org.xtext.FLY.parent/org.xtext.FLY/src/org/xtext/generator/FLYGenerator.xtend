@@ -305,25 +305,30 @@ class FLYGenerator extends AbstractGenerator {
 				
 				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 				filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
-					«IF !(element.environment.right as DeclarationObject).features.get(0).equals("smp")»
+					«IF !(element.environment.get(0).right as DeclarationObject).features.get(0).equals("smp")»
 					«generateChanelDeclarationForCloud(element)»
-					«ELSEIF (element.environment.right as DeclarationObject).features.get(0).equals("smp") &&
-						(element.environment.right as DeclarationObject).features.length==3»
+					«ELSEIF (element.environment.get(0).right as DeclarationObject).features.get(0).equals("smp") &&
+						(element.environment.get(0).right as DeclarationObject).features.length==3»
 						«generateChannelDeclarationForLanguage(element)»
 					«ENDIF»
 				
 				«ENDFOR»
-				«IF resource.allContents.toIterable.filter(VariableDeclaration)
-				.filter[onCloud && (it.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")]
-				.filter[right instanceof DeclarationObject]
-				.filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")].length > 0»
-					if(!__s3.doesBucketExist("bucket-"+__id_execution)){
-						__s3.createBucket("bucket-"+__id_execution);
-					}
-				«ENDIF»
+«««				«IF resource.allContents.toIterable.filter(VariableDeclaration)
+«««				.filter[onCloud && (it.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")]
+«««				.filter[right instanceof DeclarationObject]
+«««				.filter[(right as DeclarationObject).features.get(0).value_s.equals("dataframe")].length > 0»
+«««					if(!__s3_«».doesBucketExist("bucket-"+__id_execution)){
+«««						__s3_.createBucket("bucket-"+__id_execution);
+«««					}
+«««				«ENDIF»
 				
 				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
-				filter[(right as DeclarationObject).features.get(0).value_s.equals("dat")]»
+				filter[(right as DeclarationObject).features.get(0).value_s.equals("dataframe")]»
+						«IF (element.environment.get(0).right as DeclarationObject).features.get(0).value_s=="aws"»
+						if(!__s3_«element.environment.get(0).name».doesBucketExist("bucket-"+__id_execution)){
+							__s3_«element.environment.get(0).name».createBucket("bucket-"+__id_execution);
+						}
+						«ENDIF»
 						«deployFileOnCloud(element,file_deploy_id++)»
 				«ENDFOR»
 
@@ -713,13 +718,13 @@ class FLYGenerator extends AbstractGenerator {
 							'''
 					}
 					case "channel":{
-						var env = (dec.environment.right as DeclarationObject).features.get(0).value_s
+						var env = (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s
 						return '''
 							static LinkedTransferQueue<Object> «dec.name» = new LinkedTransferQueue<Object>();
 							«IF ! env.equals("smp")»
 								static Boolean __wait_on_«dec.name» = true;
 							«ENDIF»
-							«IF (dec.environment.right as DeclarationObject).features.length == 3 »
+							«IF (dec.environment.get(0).right as DeclarationObject).features.length == 3 »
 								static ServerSocket __socket_server_«dec.name»;
 							«ENDIF»
 						'''
@@ -910,11 +915,11 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
-					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")	||
-						(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws-debug") ||
-						(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("azure") ||
-						((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
-							(((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.length==3
+					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")	||
+						(((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws-debug") ||
+						(((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure") ||
+						((((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp") &&
+							(((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.length==3
 						)){
 						if((dec.right as CastExpression).type.equals("Object")){
 							typeSystem.get(scope).put(dec.name, "HashMap")
@@ -940,7 +945,7 @@ class FLYGenerator extends AbstractGenerator {
 								String «dec.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
 							'''
 						}
-					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.equals("smp") ){ 
+					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp") ){ 
 						typeSystem.get(scope).put(dec.name, valuateArithmeticExpression((dec.right as CastExpression),scope))
 						println( typeSystem.get(scope))
 						return '''
@@ -1088,15 +1093,16 @@ class FLYGenerator extends AbstractGenerator {
 		
 	
 	def deployFileOnCloud(VariableDeclaration dec,long id) {
-			var path = (dec.right as DeclarationObject).features.get(1).value_s
-			var env = dec.environment.name;
+			var path = (dec.right as DeclarationObject).features.get(2).value_s
+			var env = (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s;
+			println("env: " +env)
 			if( ! path.contains("https://")){ // local 
 				var name_file_ext = path.split("/").last
 				var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
 				switch (env) {
 				case "aws": 	
 					return '''
-						ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
+						ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
 						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
 						Boolean __exists_«name_file»_«id»=false;
 						for (S3ObjectSummary os: __result_objects_«id») {
@@ -1108,7 +1114,7 @@ class FLYGenerator extends AbstractGenerator {
 						if(!__exists_«name_file»_«id»){
 							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
 							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-							__s3.putObject(__putObjectRequest);
+							__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
 						}
 					'''
 				case "aws-debug": 	
@@ -1131,7 +1137,7 @@ class FLYGenerator extends AbstractGenerator {
 				
 				case "azure":
 					return '''
-						«env».uploadFile(new File("«path»"));
+						«dec.environment.get(0).name».uploadFile(new File("«path»"));
 					'''
 				default: {
 					return ''''''
@@ -1170,10 +1176,10 @@ class FLYGenerator extends AbstractGenerator {
 				__fly_environment.get("«dec_name»").put("language","«language»");
 			'''
 		}else if (env.equals("azure")){
-			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
+			var threads = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
 //			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
-			var language =  ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
+			var language =  ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s
 			var profile =((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
 			return '''
 				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
@@ -1188,11 +1194,11 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateChannelDeclarationForLanguage(VariableDeclaration dec){
-		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
-		if(env.equals("smp") && (dec.environment.right as DeclarationObject).features.length==3){
+		var env = ((dec.environment.get(0).right as DeclarationObject).features.get(0)).value_s
+		if(env.equals("smp") && (dec.environment.get(0).right as DeclarationObject).features.length==3){
 			return '''
 				__socket_server_«dec.name»= new ServerSocket(9090);
-				__thread_pool_«dec.environment.name».submit(new Runnable() {
+				__thread_pool_«dec.environment.get(0).name».submit(new Runnable() {
 							
 					public void run() {
 						try {
@@ -1215,8 +1221,8 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateChanelDeclarationForCloud(VariableDeclaration dec) { // create a queue on AWS
-		var env = ((dec.environment.right as DeclarationObject).features.get(0)).value_s
-		var env_name = dec.environment.name
+		var env = ((dec.environment.get(0).right as DeclarationObject).features.get(0)).value_s
+		var env_name = dec.environment.get(0).name
 		var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
 			filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0)
 		var local = local_env.name
@@ -1548,12 +1554,12 @@ class FLYGenerator extends AbstractGenerator {
 				}
 				case "channel":{
 					if(expression.feature.equals("close")){
-						println("channel on "+((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s)
+						println("channel on "+((expression.target as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s)
 						return '''
-							«IF !((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") »
+							«IF !((expression.target as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp") »
 								__wait_on_«expression.target.name» = false;
-							«ELSEIF ((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.get(0).value_s.equals("smp") &&
-							((expression.target as VariableDeclaration).environment.right as DeclarationObject).features.length==3»
+							«ELSEIF ((expression.target as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp") &&
+							((expression.target as VariableDeclaration).environment.get(0).right as DeclarationObject).features.length==3»
 								__socket_server_«expression.target.name».close();
 							«ENDIF»
 						'''
@@ -2232,8 +2238,8 @@ class FLYGenerator extends AbstractGenerator {
 	}
 
 	def generateChannelSend(ChannelSend send, String scope) {
-		var env = (((send.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
-		var env_name = send.target.environment.name
+		var env = (((send.target.environment.get(0).right as DeclarationObject).features.get(0)) as DeclarationFeature).value_s
+		var env_name = send.target.environment.get(0).name
 		switch env {
 			case "smp":
 				return '''«(send.target as VariableDeclaration).name».add(«generateArithmeticExpression(send.expression,scope)»)'''
@@ -2410,7 +2416,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
 				if (!(((assignment.value as CastExpression).target as ChannelReceive).target.environment.
-					right as DeclarationObject).features.get(0).value_s.equals("smp")) { // aws environment
+					get(0).right as DeclarationObject).features.get(0).value_s.equals("smp")) { // aws environment
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						return '''
 							«generateArithmeticExpression(assignment.feature,scope)» «assignment.op» Integer.parseInt(«((assignment.value as CastExpression).target as ChannelReceive).target.name».take().toString());
@@ -2446,7 +2452,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 
 			} else if (assignment.value instanceof ChannelReceive) {
-				if (!((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
+				if (!((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("smp")) { // aws environment
 					return '''
 						try{
@@ -2735,7 +2741,7 @@ class FLYGenerator extends AbstractGenerator {
 			if (exp.type.equals("Float")) {
 				return "Double"
 			}
-			if (exp.type.equals("Dat")) {
+			if (exp.type.equals("Dataframe")) {
 				return "Table"
 			}
 			if (exp.type.equals("Date")) {

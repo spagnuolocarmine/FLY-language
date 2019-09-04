@@ -132,7 +132,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		val chRecvs = resourceInput.allContents
 				.filter[it instanceof ChannelReceive]
 				.filter[functionContainer(it) === root.name]
-				.filter[((it as ChannelReceive).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")] 
+				.filter[((it as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")] 
 				.map[it as ChannelReceive]
 				.map[it.target as VariableDeclaration]
 				
@@ -140,7 +140,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		val chSends = resourceInput.allContents
 				.filter[it instanceof ChannelSend]
 				.filter[functionContainer(it) === root.name]
-				.filter[((it as ChannelSend).target.environment.right as DeclarationObject).features.get(0).value_s.contains("aws")] 
+				.filter[((it as ChannelSend).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")] 
 				.map[it as ChannelSend]
 				.map[it.target as VariableDeclaration]
 				.map[it.name]
@@ -293,7 +293,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def generatePyExpression(Expression exp, String scope, boolean local) {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
-			var env = (exp.target.environment.right as DeclarationObject).features.get(0).value_s ;//(exp.target as DeclarationObject).features.get(0).value_s;
+			var env = (exp.target.environment.get(0).right as DeclarationObject).features.get(0).value_s ;//(exp.target as DeclarationObject).features.get(0).value_s;
 			s += '''			
 			«IF local»
 				«exp.target.name».write(json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
@@ -342,23 +342,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 					switch (type) {
 						case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
-							var path = (exp.right as DeclarationObject).features.get(1).value_s
-							var fileType = (exp.right as DeclarationObject).features.get(2).value_s
+							var path = (exp.right as DeclarationObject).features.get(2).value_s
+							//var fileType = (exp.right as DeclarationObject).features.get(2).value_s
 							var sep = (exp.right as DeclarationObject).features.get(3).value_s
 							path = path.replaceAll('"', '');
-							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »«IF env == "aws"»https://s3.us-east-2.amazonaws.com«ELSEIF env=="aws-debug"»http//192.168.0.1:4572«ENDIF»/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
-							switch (fileType) {
-								case 'csv': {
-									s += '''
-										«exp.name» = pd.read_csv('«uri»', sep='«sep»')
-									'''	
-								}
-								default:  {
-									s += '''
-										«exp.name» = pd.read_csv('«uri»', sep='«sep»')
-									'''		
-								}
-							}
+							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »«IF env == "aws"»https://s3.us-east-2.amazonaws.com«ELSEIF env=="aws-debug"»http://192.168.0.1:4572«ELSEIF env=="azure"»https://"${storageName}".blob.core.windows.net«ENDIF»/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
+		
+							s += '''
+								«exp.name» = pd.read_csv('«uri»', sep='«sep»')
+							'''		
 						}
 						case "File":{
 							typeSystem.get(scope).put(exp.name, "File")
@@ -482,7 +474,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
 				// If it is a CastExpression of a channel receive
 				val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
-				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
+				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment2
 					// And we are on AWS
 					//TODO controllare receive_message
@@ -505,7 +497,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 						«ENDIF»
 						'''
 					}
-				} else if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
+				} else if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("azure")) { 
 					// And we are on other environments
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
@@ -538,7 +530,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			} else if (assignment.value instanceof ChannelReceive) {
 				val channel = (((assignment.value as CastExpression).target as ChannelReceive).target) as VariableDeclaration
 				// If it is an assignment of type Channel receive
-				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
+				if (((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { 
 					// And we are on AWS
 					return '''
@@ -548,7 +540,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«channel.name».receive_messages()[0]
 					«ENDIF»
 					'''
-				} else if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
+				} else if (((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("azure")) {
 					return '''
 					«IF local»
@@ -1423,7 +1415,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		storageName=$8
 		storageKey=$9
 		
-		az login --service-principal -u ${user} -t ${tenant} -p ${secret} --subscription ${subscription}
+		az login --service-principal -u ${user} -t ${tenant} -p ${secret}
 		
 		#Check if python is installed
 		if !(command -v python3 &>/dev/null) then
@@ -1534,7 +1526,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 			# delete user queue
 			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
-			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+			.filter[((it.environment.get(0) as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
 				#get «res.name»_${id} queue-url
 				
 				echo "get «res.name»-${id} queue-url"

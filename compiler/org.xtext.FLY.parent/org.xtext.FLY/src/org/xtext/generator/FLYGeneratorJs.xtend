@@ -488,7 +488,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		if (assignment.feature != null) {
 			if (assignment.value instanceof CastExpression &&
 				((assignment.value as CastExpression).target instanceof ChannelReceive)) {
-				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.
+				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
 						return '''
 							__data = await sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»_'${id}'}").promise();
@@ -500,7 +500,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 				}
 
 			} else if (assignment.value instanceof ChannelReceive) {
-				if (((assignment.value as ChannelReceive).target.environment.right as DeclarationObject).features.
+				if (((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { // aws environment
 					return '''
 					__data = await sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»_'${id}'"}).promise();
@@ -1042,7 +1042,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		# delete user queue
 		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
-			«IF (res.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")»
+			«IF (res.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("aws")»
 				#get «res.name»_${id} queue-url
 				
 				echo "get «res.name»_${id} queue-url"
