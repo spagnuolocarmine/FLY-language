@@ -1580,6 +1580,19 @@ class FLYGenerator extends AbstractGenerator {
 					return s
 				}
 			} 
+		}else{
+			var s = expression.target.name + "." + expression.feature + "("
+			for (exp : expression.expressions) {
+				s += generateArithmeticExpression(exp, scope)
+				if (exp != expression.expressions.last()) {
+					s += ","
+				}
+			}
+			s += ")"
+			if (t) {
+				s += ";"
+			}
+			return s
 		}
 	
 	}
@@ -2086,6 +2099,7 @@ class FLYGenerator extends AbstractGenerator {
 		var region = ((call.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
 		var function = call.target.name
 		var ret = ''''''
+		println("fly call "+ (call.input.f_index as VariableLiteral).variable.name)
 		if (call.input.isIs_for_index) {
 			
 			//create the termination SQS queue 

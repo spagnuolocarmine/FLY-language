@@ -330,12 +330,31 @@ class FLYGeneratorPython extends AbstractGenerator {
 					s += '''}'''
 
 				} else if (exp.right instanceof ArrayDefinition) {
-					typeSystem.get(scope).put(exp.name, "Array")
-					val len = (exp.right as ArrayDefinition).indexes.get(0).value
 					val type = (exp.right as ArrayDefinition).type
-					s += '''
-					«exp.name» = [None] * «generatePyArithmeticExpression(len, scope, local)»
-					'''
+					
+					if((exp.right as ArrayDefinition).indexes.length==1){
+						var len = (exp.right as ArrayDefinition).indexes.get(0).value
+						typeSystem.get(scope).put(exp.name, "Array_"+type)
+						s += '''
+						«exp.name» = [None] * «generatePyArithmeticExpression(len, scope, local)»
+						'''
+					}else if((exp.right as ArrayDefinition).indexes.length==2){
+						var row = (exp.right as ArrayDefinition).indexes.get(0).value
+						var col = (exp.right as ArrayDefinition).indexes.get(1).value
+						typeSystem.get(scope).put(exp.name, "Matrix_"+type+"_"+generatePyArithmeticExpression(col, scope, local))
+						s += '''
+						«exp.name» = [None] * («generatePyArithmeticExpression(row, scope, local)»* «generatePyArithmeticExpression(col, scope, local)»)
+						'''
+					}else if((exp.right as ArrayDefinition).indexes.length==3){
+						var row = (exp.right as ArrayDefinition).indexes.get(0).value
+						var col = (exp.right as ArrayDefinition).indexes.get(1).value
+						var dep = (exp.right as ArrayDefinition).indexes.get(2).value
+						typeSystem.get(scope).put(exp.name, "Matrix_"+type+"_"+generatePyArithmeticExpression(col, scope, local)+"_"+generatePyArithmeticExpression(dep, scope, local))
+						s += '''
+						«exp.name» = [None] * «generatePyArithmeticExpression(row, scope, local)» * «generatePyArithmeticExpression(col, scope, local)» *«generatePyArithmeticExpression(dep, scope, local)»
+						'''
+					}
+					
 				} 
 				else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
