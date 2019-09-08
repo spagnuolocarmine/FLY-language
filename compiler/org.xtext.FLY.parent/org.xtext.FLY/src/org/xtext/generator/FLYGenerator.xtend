@@ -1279,7 +1279,7 @@ class FLYGenerator extends AbstractGenerator {
 						@Override
 						public Object call() throws Exception {
 							while(__wait_on_«dec.name») {
-								List<String> __recMsgs = «env_name».peeksFromQueue("«dec.name»-"+__id_execution,10);
+								List<String> __recMsgs = «env_name».peeksFromQueue("«dec.name»-"+__id_execution,1);
 						
 								for(String msg : __recMsgs) { 
 									«dec.name».put(msg);
@@ -2314,7 +2314,7 @@ class FLYGenerator extends AbstractGenerator {
 				}
 			'''
 		} else if (object instanceof VariableLiteral) {
-			println((object as VariableLiteral).variable)
+			println("for :" +(object as VariableLiteral).variable.name)
 			if (((object as VariableLiteral).variable.typeobject.equals('var') &&
 				((object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
 				typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("HashMap")) {
@@ -2333,12 +2333,10 @@ class FLYGenerator extends AbstractGenerator {
 						«ENDIF»
 					}
 				'''
-			} else if ((object as VariableLiteral).variable.typeobject.equals('dat')) {
-				var name = (object as VariableLiteral).variable.name;
+			} else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("File")){
+					var name = (object as VariableLiteral).variable.name;
 				var index_name = (indexes.indices.get(0) as VariableDeclaration).name
 				typeSystem.get(scope).put(index_name,name); 
-				println(typeSystem.get(scope).get(index_name))
-				if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("File")){
 					return '''
 						Scanner __scanner_«name» = new Scanner(«name»);
 						while(__scanner_«name».hasNextLine()){
@@ -2354,6 +2352,9 @@ class FLYGenerator extends AbstractGenerator {
 						__scanner_«name».close();
 					'''
 				}else if (typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")){
+					var name = (object as VariableLiteral).variable.name;
+				var index_name = (indexes.indices.get(0) as VariableDeclaration).name
+				typeSystem.get(scope).put(index_name,name); 
 					return '''
 						for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
 							«IF body instanceof BlockExpression»
@@ -2366,7 +2367,7 @@ class FLYGenerator extends AbstractGenerator {
 						}
 					'''
 				}
-			} else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
+			 else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
 				
 			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Matrix")){
 				

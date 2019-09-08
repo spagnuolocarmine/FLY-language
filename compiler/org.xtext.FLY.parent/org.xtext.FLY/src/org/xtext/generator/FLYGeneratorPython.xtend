@@ -1502,7 +1502,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 		cd ..
 		
 		echo "Deploying the function"
-		func azure functionapp publish ${app}${id} --build-native-deps
+		until func azure functionapp publish ${app}${id} --resource-group flyrg${id} --build-native-deps
+		do
+		    echo "Deploy attempt"
+		done
 				
 		az  logout
 		deactivate
