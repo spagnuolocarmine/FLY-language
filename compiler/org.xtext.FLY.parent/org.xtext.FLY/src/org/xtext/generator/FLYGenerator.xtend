@@ -254,6 +254,9 @@ class FLYGenerator extends AbstractGenerator {
 			static long  __id_execution =  System.currentTimeMillis();
 			
 			public static void main(String[] args) throws Exception{
+				«FOR element : (resource.allContents.toIterable.filter(Expression).filter(ConstantDeclaration))»
+					«initialiseConstant(element,"main")»
+				«ENDFOR»
 				«IF checkAWSDebug()»
 				Runtime.getRuntime().exec("chmod +x src-gen/docker-compose-script.sh");
 				ProcessBuilder __processBuilder_docker_compose = new ProcessBuilder("/bin/bash", "-c", "src-gen/docker-compose-script.sh");
@@ -413,6 +416,8 @@ class FLYGenerator extends AbstractGenerator {
 		
 	}
 	'''
+		
+
 		
 		def undeployFlyFunctionOnCloud(FlyFunctionCall call) {
 			var env = (call.environment.right as DeclarationObject).features.get(0).value_s
@@ -1091,6 +1096,29 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 		
+		def initialiseConstant(ConstantDeclaration dec,String scope) {
+			if (dec.right instanceof NameObjectDef){ 
+				typeSystem.get(scope).put(dec.name, "HashMap")
+				var s = '''
+				'''
+				var i = 0;
+				for (f : (dec.right as NameObjectDef).features) {
+					if (f.feature != null) {
+						typeSystem.get(scope).put(dec.name + "." + f.feature,
+							valuateArithmeticExpression(f.value, scope))
+						s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value,scope)»);
+						'''
+					} else {
+						typeSystem.get(scope).put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value, scope))
+						s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value,scope)»);
+						'''
+						i++
+					}
+
+				}
+				return s			
+		}
+		}
 	
 	def deployFileOnCloud(VariableDeclaration dec,long id) {
 			var path = (dec.right as DeclarationObject).features.get(2).value_s
@@ -2217,7 +2245,7 @@ class FLYGenerator extends AbstractGenerator {
 			ret+='''
 			int __messagges_«call.target.name»_«func_ID» = 0;
 			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
-				List<String> __recMsgs = «cred».peeksFromQueue("termination-«call.target.name»-"+__id_execution+"-«func_ID»",10);
+				List<String> __recMsgs = «cred».peeksFromQueue("termination-«call.target.name»-"+__id_execution+"-«func_ID»",1);
 				for(String msg : __recMsgs) { 
 					__messagges_«call.target.name»_«func_ID»++;
 				}
