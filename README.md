@@ -23,8 +23,17 @@ FLY is compiled in native code (Java code) and it is able to automatically explo
 |:-------------------------------------:|:--------------------:|:--------------------:|:--------------------:|
 | Amazon AWS                          | :heavy_check_mark: |                    |                    |
 | Microsoft Azure                     | :heavy_check_mark: |                    |                    |
+| [LocalStack](https://localstack.cloud/)| :heavy_check_mark: |                 |                    |
 | Google Function                     |                    | :heavy_check_mark: |  |
 | IBM Bluemix/Apache OpenWhisk        |                    |                    | :heavy_check_mark: |
+
+Supported Languages:
+
+|Faas Cloud Computing Infrastructure |Python | Javascript|
+|:-------------------------------------:|:--------------------:|:--------------------:|
+| Amazon AWS                               | :heavy_check_mark: |:heavy_check_mark:   |
+| Microsoft Azure                          | :heavy_check_mark: |:heavy_check_mark:   |
+| [LocalStack](https://localstack.cloud/)  | :heavy_check_mark: |:heavy_check_mark:   |
 
 ### Requirements
 
