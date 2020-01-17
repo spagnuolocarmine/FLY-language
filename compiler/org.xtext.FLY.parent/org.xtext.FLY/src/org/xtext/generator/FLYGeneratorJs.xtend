@@ -88,8 +88,9 @@ class FLYGeneratorJs extends AbstractGenerator {
 	
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		//fsa.generateFile(name + ".js", input.compileJS(root, env));
-		fsa.generateFile(root.name+"_deploy.sh",input.compileDeploy(root.name));
-		fsa.generateFile(root.name+"_undeploy.sh",input.compileUndeploy(root.name));
+		println("JS GENERATOR" + typeSystem.get(root.name))
+		fsa.generateFile(root.name+"_deploy.sh",input.compileScriptDeploy(root.name,false));
+		fsa.generateFile(root.name+"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
 		if (this.isLocal) {
 			fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
 		} 
@@ -118,41 +119,80 @@ class FLYGeneratorJs extends AbstractGenerator {
 			«IF env == "aws"»
 				var AWS = require("aws-sdk");
 				var sqs = new AWS.SQS();
+			«ELSEIF env=="azure"»
+				const { QueueServiceClient, StorageSharedKeyCredential } = require("@azure/storage-queue");
+				const { BlobServiceClient} = require("@azure/storage-blob");
+				const sharedKeyCredential = new StorageSharedKeyCredential("${storageName}","${storageKey}");
+				const queueServiceClient = new QueueServiceClient(
+				    `https://${account}.queue.core.windows.net`,
+				    sharedKeyCredential
+				);
+				
+				const blobServiceClient = new BlobServiceClient(
+				  `https://${account}.blob.core.windows.net`,
+				  sharedKeyCredential
+				);
 			«ENDIF»
+			
 			var __dataframe = require("dataframe-js").DataFrame;
+			const readline = require("readline");
 			«FOR req: exps.expressions.filter(RequireExpression)»
 			
 			«ENDFOR»
 			let __params;
+			let id_func;
 			let __data;
 			
 			«FOR exp : resource.allContents.toIterable.filter(ConstantDeclaration)»
 				«generateConstantDefinition(exp,name)»
 			«ENDFOR»
-			
+			«IF env == "aws"»
 			exports.handler = async (event,context) => {
-				
+			«ELSEIF env=="azure"»
+			module.exports = async function (context, req) {
+			id_func=req.id;
+			const data = req.body.data;
+			«ENDIF»	
 				«FOR exp : parameters»
-				«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-						var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event));
-						var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray()
-					«ELSE»
-						var «(exp as VariableDeclaration).name» = event;
+					«IF env == "aws"»
+						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+							var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event));
+							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
+						«ELSE»
+							var «(exp as VariableDeclaration).name» = event;
+						«ENDIF»
+					«ELSEIF env == "azure"»
+						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+							var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(data));
+							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
+						«ELSE»
+							var «(exp as VariableDeclaration).name» = data;
+						«ENDIF»
 					«ENDIF»
 				«ENDFOR»
+				
 				«FOR exp : exps.expressions»
 					«generateJsExpression(exp,name)»
 				«ENDFOR»
-				«IF !this.isAsync»
-					__data = await sqs.getQueueUrl({ QueueName: "__syncTermination_'${function}'_'${id}'"}).promise();
-								
-					__params = {
-						MessageBody : JSON.stringify("terminate"),
-						QueueUrl : __data.QueueUrl
-					}
-								
-					__data = await sqs.sendMessage(__params).promise();
+				
+				«IF env=="aws"»
+				__data = await sqs.getQueueUrl({ QueueName: 'termination-"${function}"-"${id}"-'+id_func'}).promise();
+							
+				__params = {
+					MessageBody : JSON.stringify("terminate"),
+					QueueUrl : __data.QueueUrl
+				}
+							
+				__data = await sqs.sendMessage(__params).promise();
+				«ELSEIF env=="azure"»
+					const termQueue=queueServiceClient.getQueueClient('termination-"${function}"-"${id}"-'+id_func);
+					const sendMessageResponse2 = await termQueue.sendMessage("terminate");
 				«ENDIF»
+				
+				context.res = {
+					status: 200, /* Defaults to 200 */
+					body: "Ok!"
+				};
 			}
 		'''
 	}
@@ -275,16 +315,23 @@ class FLYGeneratorJs extends AbstractGenerator {
 	def generateJsExpression(Expression exp, String scope) {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
-			s += '''	
-				__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»_'${id}'"}).promise();
-				
-				__params = {
-					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»),
-					QueueUrl : __data.QueueUrl
-				}
-				
-				__data = await sqs.sendMessage(__params).promise();
-			'''
+			if(env == "aws" || env == "aws-debug" ){
+				s += '''	
+						__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»_'${id}'"}).promise();
+						
+						__params = {
+							MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»),
+							QueueUrl : __data.QueueUrl
+						}
+						
+						__data = await sqs.sendMessage(__params).promise();
+					'''
+			} else if(env == "azure"){
+				s+='''
+					__data = await «exp.target.name».sendMessage(JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»))
+				'''
+			}
+			
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
 				if (exp.right instanceof NameObjectDef) {
@@ -394,12 +441,25 @@ class FLYGeneratorJs extends AbstractGenerator {
 				} else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
 					switch (type) {
-						case "DataFrame": {
+						case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
 							var path = (exp.right as DeclarationObject).features.get(1).value_s
 							s += '''
 								var __«exp.name» = await __dataframe.fromCSV(«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/«path»" «ELSE»«path»«ENDIF»)
 								var «exp.name» = __«exp.name».toArray()
+							'''
+						}
+
+						case "file":{
+							typeSystem.get(scope).put(exp.name, "File")
+							var path = "";
+							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
+								path = (exp.right as DeclarationObject).features.get(1).value_f.name
+							}else{
+								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
+							}
+							return '''
+							
 							'''
 						}
 						
@@ -866,8 +926,19 @@ class FLYGeneratorJs extends AbstractGenerator {
 		}
 	}
 	
+		def CharSequence compileScriptDeploy(Resource resource, String name, boolean local){
+		switch this.env {
+		   case "aws": AWSDeploy(resource,name,false)
+		   case "aws-debug": AWSDeploy(resource,name,true)
+		   case "azure": AzureDeploy(resource,name)
+		   default: this.env+" not supported"
+  		}
+	}
 	
-	def CharSequence compileDeploy(Resource resource, String name)'''
+
+	
+	
+	def CharSequence AWSDeploy(Resource resource, String name, Boolean debug)'''
 	#!/bin/bash
 		
 		if [ $# -eq 0 ]
@@ -1027,7 +1098,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 	
 	'''
 	
-	def CharSequence compileUndeploy(Resource resource, String name)'''
+	def CharSequence UndeployAWS(Resource resource, String name)'''
 		#!/bin/bash
 			
 		if [ $# -eq 0 ]
@@ -1061,9 +1132,108 @@ class FLYGeneratorJs extends AbstractGenerator {
 				aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 			«ENDIF»
 		«ENDFOR»
-		
-		
-		
 	'''
+	
+	def CharSequence AzureDeploy(Resource resource, String scope) '''
+	#!/bin/bash
+				
+	if [ $# -ne 9 ]
+	  then
+	    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId>  <storageName> <storageKey>"
+	    exit 1
+	fi
+	
+	app=$1
+	function=$2
+	id=$3
+	user=$4
+	tenant=$5
+	secret=$6
+	subscription=$7
+	storageName=$8
+	storageKey=$9
+	
+	#Check if Azure Functions Core Tools is installed
+	if !(command -v az &>/dev/null) then
+		echo "Script require Azure Functions Core Tools"
+		exit 1;
+	fi
+	
+	az login --service-principal -u ${user} -t ${tenant} -p ${secret}
+	
+	#create the project folder
+	func init {app}$${id} --worker-runtime node --language javascript
+	
+	#echo 'func init completed'
+	
+	cd {app}$${id}
+	
+	echo "npm install @azure/storage-queue"
+	npm install @azure/storage-queue
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "npm install @azure/storage-queue failed"
+	    exit 1
+	fi
+	
+	echo "npm install @azure/storage-blob"
+	npm install @azure/storage-blob
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "npm install @azure/storage-blob failed"
+	    exit 1
+	fi
+		
+	echo "npm install dataframe-js"
+	npm install dataframe-js
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "npm install dataframe-js failed"
+	    exit 1
+	fi
+	
+	«FOR req : resource.allContents.toIterable.filter(RequireExpression).filter[(environment.right as DeclarationObject).features.get(4).value_s.equals(language)]»
+	echo "npm install «req.lib»"
+	npm install «req.lib»"
+	if [ $? -eq 0 ]; then
+	    echo "..."
+	else
+	    echo "npm install «req.lib» failed"
+		    exit 1
+		fi
+	«ENDFOR»
+
+	#generete the folder for the function with the default file
+	func new --name ${function} --template "HttpTrigger"
+	
+	cd ${functiom}
+	echo '«generateBodyJs(resource,root.body,root.parameters,root.name,env)»' > index.js
+	
+	cd ..
+	
+	az functionapp create --resource-group flyrg${id} --consumption-plan-location westeurope --name ${app}${id} --storage-account  flyst${id} --runtime node
+		
+	until func azure functionapp publish ${app}${id}
+			do
+			    echo "Deploy attempt"
+			done
+	
+	'''
+	
+	def CharSequence AzureUndeploy(Resource resource, String string) '''
+	#!/bin/bash
+	
+	'''
+	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
+		switch this.env {
+			   case "aws": UndeployAWS(resource,name)
+			   case "aws-debug": " not supported"
+			   case "azure": " not supported"
+			   default: this.env+" not supported"
+	  		}
+	} 
 	
 }

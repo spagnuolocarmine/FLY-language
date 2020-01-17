@@ -56,8 +56,6 @@ ForExpression:
 ;
 
 ForDelimeter:
-	type='row' | 
-	type='col' |
 	type='delimeter' del=STRING
 ;
 
@@ -82,12 +80,6 @@ BlockExpression:
 
 VariableDeclaration:
 	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall | right=DeclarationObject)) (onCloud?='on' environment+=[VariableDeclaration] (',' environment+=[VariableDeclaration])* )? |
-//	{EnvironmentDeclaration} typeobject='env' =>(name = ID '=' right=DeclarationObject) 																				|
-//	{DatDeclaration} typeobject='dat' =>(name=ID '=' (right=ArithmeticExpression | right=DeclarationObject) (onCloud?='on' environment=[EnvironmentDeclaration])? )		|
-//	{RandomDeclaration} typeobject='random' =>(name = ID) 																												|
-//	{BinDeclaration} typeobject='bin' =>(name = ID '=' right=DeclarationObject)																							|
-//	{OptimizerDeclaration} typeobject='opt' =>(name = ID '=' right=DeclarationObject)																					|
-//	{ChannelDeclaration} typeobject='channel' =>(name = ID 'on' environment=[EnvironmentDeclaration])																	|
 	{ConstantDeclaration} typeobject='const' =>(name = ID '='  (right=ArithmeticExpression | right=Object ))															
 ;
 
@@ -111,7 +103,7 @@ DeclarationObject:
 ;
 
 DeclarationFeature:
-	{DeclarationFeature} feature=ID '=' (value_f= ID | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
+	{DeclarationFeature} feature=ID '=' (value_f= [VariableDeclaration] | value_s=STRING | value_t=INT | value_b=BooleanLiteral)	
 ;
 
 FeautureName:
@@ -179,7 +171,7 @@ FlyFunctionCall:
 
 FunctionInput:
 	{FunctionInput} '(' expressions+=ArithmeticExpression? (',' expressions+=ArithmeticExpression)* ')' | 
-	{FunctionInput} is_for_index?='in' f_index=ArithmeticExpression
+	{FunctionInput} is_for_index?='in' f_index=ArithmeticExpression (is_split_by?='by' split=('row'|'col'|'square') )?
 ;
 
 NativeExpression:
@@ -266,7 +258,7 @@ CastExpression returns ArithmeticExpression:
 ;
 
 Type:
-	'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double'
+	'String' | 'Integer' | 'Date' | 'Dat' | 'Object'  | 'Double' | 'Matrix'
 ;
 
 

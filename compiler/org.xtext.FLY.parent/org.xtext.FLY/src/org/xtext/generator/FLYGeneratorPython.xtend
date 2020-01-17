@@ -51,6 +51,7 @@ import org.xtext.fLY.FlyFunctionCall
 import java.util.ArrayList
 import java.util.Arrays
 import org.xtext.fLY.EnvironemtLiteral
+import org.eclipse.xtext.service.AllRulesCache.AllRulesCacheAdapter
 
 class FLYGeneratorPython extends AbstractGenerator {
 	String name = null
@@ -68,6 +69,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 	boolean isLocal
 	boolean isAsync
 	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
+	ArrayList listParams = null
+	List<String> allReqs=null
 
 	def generatePython(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context, String name_file,
 		FunctionDefinition func, VariableDeclaration environment, HashMap<String, HashMap<String, String>> scoping,
@@ -103,15 +106,12 @@ class FLYGeneratorPython extends AbstractGenerator {
 	}
 
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
-		var allReqs = input.allContents
+		allReqs = input.allContents
 			.filter(RequireExpression)
 			.filter[(it.environment.right as DeclarationObject).features.get(0).value_s != 'smp']
 			.map[it.lib]
 			.toList
-		allReqs.add("numpy")
-		allReqs.add("pandas")
 		allReqs.add("pytz")
-		allReqs.add("ortools")
 		if(env.equals("azure"))
 			allReqs.add("azure-storage-queue")
 		saveToRequirements(allReqs, fsa)
@@ -175,10 +175,19 @@ class FLYGeneratorPython extends AbstractGenerator {
 		fsa.generateFile("requirements.txt", res)
 	} 
 
+	def paramsName(List<Expression> expressions) {
+			val tmp = new ArrayList()
+			for(Expression e: expressions){
+				tmp.add((e as VariableDeclaration).name)
+				//println("sdasds "+ (e as VariableDeclaration).name)
+			}
+				
+
+			return tmp
+	}
 
 	def generateBodyPyLocal(BlockExpression exps, List<Expression> parameters, String name, String env, boolean local) {
 		val channelNames = channelsNames(exps)
-		println(typeSystem)
 		return '''
 		import random
 		import time
@@ -225,18 +234,27 @@ class FLYGeneratorPython extends AbstractGenerator {
 			main(__sock_data_fh.readline())
 		'''
 	}
+	
+	
 
 	def generateBodyPy(BlockExpression exps, List<Expression> parameters, String name, String env, boolean local) {
 		//println("generaty python body "+name)
 		//println(typeSystem.get(name))
 		val channelNames = channelsNames(exps)
+		listParams = paramsName(parameters)
+		
 		'''
 			# python
+			import os
 			import random
 			import time
 			import math 
+			«IF allReqs.contains("pandas")»
 			import pandas as pd
+			import numpy as np
+			«ENDIF»
 			import json
+			import urllib.request
 			
 			«IF env.contains("aws")»				
 			import boto3
@@ -270,12 +288,23 @@ class FLYGeneratorPython extends AbstractGenerator {
 				data = __event['data']
 			«ENDIF»
 				«FOR exp : parameters»
-					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") || typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
+					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")» // || typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
 						__columns = data[0].keys()
 						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
+					«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Matrix")»
+						__«(exp as VariableDeclaration).name»_matrix = data[0]
+						__«(exp as VariableDeclaration).name»_rows = data[0]['rows']
+						__«(exp as VariableDeclaration).name»_cols = data[0]['cols']
+						__«(exp as VariableDeclaration).name»_values = data[0]['values']
+						__index = 0
+						«(exp as VariableDeclaration).name» = [None] * (__«(exp as VariableDeclaration).name»_rows * __«(exp as VariableDeclaration).name»_cols)
+						for __i in range(__«(exp as VariableDeclaration).name»_rows):
+							for __j in range(__«(exp as VariableDeclaration).name»_cols):
+								«(exp as VariableDeclaration).name»[__i*__«(exp as VariableDeclaration).name»_cols+__j] = __«(exp as VariableDeclaration).name»_values[__index]['value']
+								__index+=1
 					«ELSE»
-						«(exp as VariableDeclaration).name» = data # TODO check
+				«(exp as VariableDeclaration).name» = data # TODO check
 					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
@@ -291,16 +320,33 @@ class FLYGeneratorPython extends AbstractGenerator {
 	}
 
 	def generatePyExpression(Expression exp, String scope, boolean local) {
+		
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			var env = (exp.target.environment.get(0).right as DeclarationObject).features.get(0).value_s ;//(exp.target as DeclarationObject).features.get(0).value_s;
 			s += '''			
 			«IF local»
 				«exp.target.name».write(json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»).encode('utf8'))
+				
 			«ELSEIF (env.contains("aws"))»
-			«exp.target.name».send_message(
-				MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»)
-			)
+				«IF exp.expression instanceof VariableLiteral && typeSystem.get(scope).get((exp.expression as VariableLiteral).variable.name).contains("Matrix") »
+					«IF listParams.contains((exp.expression as VariableLiteral).variable.name)»
+					__index=0
+					for __i in range(__«(exp.expression as VariableLiteral).variable.name»_rows):
+						for __j in range(__«(exp.expression as VariableLiteral).variable.name»_cols):
+							__«(exp.expression as VariableLiteral).variable.name»_matrix['values'][__index]= «(exp.expression as VariableLiteral).variable.name»[__i*__«(exp.expression as VariableLiteral).variable.name»_cols+__j]
+							__index+=1
+					«ELSE»
+					
+					«ENDIF»
+					«exp.target.name».send_message(
+						MessageBody=json.dumps(__«(exp.expression as VariableLiteral).variable.name»_matrix)
+					)
+				«ELSE»
+					«exp.target.name».send_message(
+						MessageBody=json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»)
+					)
+				«ENDIF»
 			«ELSEIF env=="azure"»
 			__queue_service.put_message('«exp.target.name»-"${id}"', json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»))
 			«ENDIF»
@@ -358,22 +404,38 @@ class FLYGeneratorPython extends AbstractGenerator {
 				} 
 				else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
+					
 					switch (type) {
 						case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
-							var path = (exp.right as DeclarationObject).features.get(2).value_s
+							var path = "";
+							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
+								path = (exp.right as DeclarationObject).features.get(1).value_f.name
+							}else{
+								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
+							}
 							//var fileType = (exp.right as DeclarationObject).features.get(2).value_s
-							var sep = (exp.right as DeclarationObject).features.get(3).value_s
-							path = path.replaceAll('"', '');
+							var sep = (exp.right as DeclarationObject).features.get(2).value_s
+							//path = path.replaceAll('"', '');
 							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »«IF env == "aws"»https://s3.us-east-2.amazonaws.com«ELSEIF env=="aws-debug"»http://192.168.0.1:4572«ELSEIF env=="azure"»https://"${storageName}".blob.core.windows.net«ENDIF»/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
 		
 							s += '''
 								«exp.name» = pd.read_csv('«uri»', sep='«sep»')
 							'''		
 						}
-						case "File":{
+						case "file":{
 							typeSystem.get(scope).put(exp.name, "File")
-							return ''''''
+							var path = "";
+							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
+								path = (exp.right as DeclarationObject).features.get(1).value_f.name
+							}else{
+								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
+							}
+							return '''
+							if 'http' in «path»:
+								«exp.name» = urllib.request.urlopen(«path»)
+							else:
+								«exp.name» = open(«path»,'rw')'''
 						}
 						default: {
 							return ''''''
@@ -602,10 +664,14 @@ class FLYGeneratorPython extends AbstractGenerator {
 					if ((assignment.feature_obj as IndexObject).indexes.length == 2) {
 						var i = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(0).value ,scope, local);
 						var j = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(1).value ,scope, local);
-						var col = typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).split("_").get(2)
+						
+						//var col = typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).split("_").get(2)
+						
 						return '''
-							«(assignment.feature_obj as IndexObject).name.name»[«i»*«col»+«j»] = «generatePyArithmeticExpression(assignment.value, scope, local)»
+							«(assignment.feature_obj as IndexObject).name.name»[«i»*__«(assignment.feature_obj as IndexObject).name.name»_cols+«j»] = «generatePyArithmeticExpression(assignment.value, scope, local)»
 						'''
+						
+						
 					}
 				} else {
 					return '''
@@ -681,8 +747,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 					
 				'''
 			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') || 
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table") ||
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File") ) {
+				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")
+				) {
 				return '''
 				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
 					«IF exp.body instanceof BlockExpression»
@@ -693,8 +759,57 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«generatePyExpression(exp.body,scope, local)»
 					«ENDIF»
 				'''
+			} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File") ){
+				return'''
+				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
+					«IF exp.body instanceof BlockExpression»
+					«FOR e: (exp.body as BlockExpression).expressions»
+					«generatePyExpression(e,scope, local)»
+					«ENDFOR»
+					«ELSE»
+					«generatePyExpression(exp.body,scope, local)»
+					«ENDIF»
+				'''
+			}else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Directory") ){
+				return '''
+				for «(exp.index.indices.get(0) as VariableDeclaration).name» in os.listdir(«(exp.object as VariableLiteral).variable.name»):
+					«IF exp.body instanceof BlockExpression»
+					«FOR e: (exp.body as BlockExpression).expressions»
+					«generatePyExpression(e,scope, local)»
+					«ENDFOR»
+					«ELSE»
+					«generatePyExpression(exp.body,scope, local)»
+					«ENDIF»
+				'''
+			} else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("String[]") ){
+				return'''
+				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
+					«IF exp.body instanceof BlockExpression»
+					«FOR e: (exp.body as BlockExpression).expressions»
+					«generatePyExpression(e,scope, local)»
+					«ENDFOR»
+					«ELSE»
+					«generatePyExpression(exp.body,scope, local)»
+					«ENDIF»
+				'''
 			}
 		}
+		}else if(exp.index.indices.length == 2){
+			if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Matrix")){
+				var row = (exp.index.indices.get(0) as VariableDeclaration).name
+				var col = (exp.index.indices.get(1) as VariableDeclaration).name
+				return '''
+				for «row» in range(__«(exp.object as VariableLiteral).variable.name»_rows):
+					for «col» in range(__«(exp.object as VariableLiteral).variable.name»_cols):
+						«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+						«generatePyExpression(e,scope, local)»
+						«ENDFOR»
+						«ELSE»
+						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+				'''
+			}	
 		}
 		
 	}
@@ -754,6 +869,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 				return '''random.random()'''
 			}else if(exp.feature.equals("length")){
 				return '''len(«exp.target.name»)'''
+			} else if(exp.feature.equals("containsKey")){
+				return '''«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)» in «exp.target.name»'''
+			} else if(exp.feature.equals("split")){
+				return '''«exp.target.name».split(«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)»)'''
 			}
 		} else if (exp instanceof TimeFunction) {
 			if (exp.value !== null) {
@@ -768,17 +887,22 @@ class FLYGeneratorPython extends AbstractGenerator {
 				return '''«(exp.name as VariableDeclaration).name»['«exp.value»']'''
 			}
 			
-		} else if (exp instanceof IndexObject) {
+		} else if (exp instanceof IndexObject) { //array
 			if (exp.indexes.length == 1) {
 				return '''«(exp.name as VariableDeclaration).name»[«generatePyArithmeticExpression(exp.indexes.get(0).value, scope, local)»]'''
-			} else if(exp.indexes.length == 2) {
+			} else if(exp.indexes.length == 2) { //matrix 2d
+				println(exp.indexes)
+				println(exp)
 				var i = generatePyArithmeticExpression(exp.indexes.get(0).value ,scope, local);
 				var j = generatePyArithmeticExpression(exp.indexes.get(1).value ,scope, local);
+			
 				var col = typeSystem.get(scope).get((exp.name as VariableDeclaration).name).split("_").get(2)
 				return '''
-					«(exp.name as VariableDeclaration).name»[(«i»*«col»)+«j»]
+					«(exp.name as VariableDeclaration).name»[(«i»*__«(exp.name as VariableDeclaration).name»_cols)+«j»]['value']
 				'''
-			} else {
+				
+				
+			} else { // matrix 3d
 				
 			}
 		} else if (exp instanceof CastExpression) {
@@ -917,6 +1041,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		} else if (exp instanceof TimeFunction) {
 			return "Long"
 		} else if (exp instanceof VariableFunction) {
+			println(exp)
+			println(exp.target)
 			if (exp.target.typeobject.equals("var")) {
 				if (exp.feature.equals("split")) {
 					return "HashMap"
@@ -1072,51 +1198,36 @@ class FLYGeneratorPython extends AbstractGenerator {
 		python get-pip.py
 	fi
 		
-	pip3 install pytz
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "pip install pytz failed"
-	    exit 1
-	fi
-	
-	
-	pip3 install ortools
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "pip install ortools failed"
-	    exit 1
-	fi
-	
 	pip3 install -r ./src-gen/requirements.txt
-	
 			
 	echo ""
 	echo "add precompliled libraries"
 	
 	cd venv/lib/python3.6/site-packages/
+	«IF allReqs.contains("ortools") »
 	echo "installing ortools"
 	rm -rf ortools*
 	wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
 	unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
 	rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
 	echo "ortools installed"
-	
+	«ENDIF»
+	«IF allReqs.contains("pandas")»
 	echo "installing pandas"
 	rm -rf pandas*
 	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
 	echo "pandas installed"
-	
+	«ENDIF»
+	«IF allReqs.contains("numpy")»
 	echo "installing numpy"
 	rm -rf numpy*
 	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
 	echo "numpy installed"
-	
+	«ENDIF»
 	echo "creating zip package"
 	zip -q -r9 ../../../../${id}\_lambda.zip .
 	echo "zip created"
@@ -1572,36 +1683,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 	#!/bin/bash
 	
 	docker-compose down				
-«««			if [ $# -eq 0 ]
-«««			  then
-«««			    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
-«««			    exit 1
-«««			fi
-«««			
-«««			user=$1
-«««			function=$2
-«««			id=$3
-«««			
-«««			# delete user queue
-«««			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
-«««			.filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
-«««				#get «res.name»_${id} queue-url
-«««				
-«««				echo "get «res.name»-${id} queue-url"
-«««				queue_url=$(aws --endpoint-url=http://localhost:4576 sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
-«««				echo ${queue_url//\"}
-«««				
-«««				echo "delete queue at url ${queue_url//\"} "
-«««				aws --endpoint-url=http://localhost:4576 sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
-«««				
-«««			«ENDFOR»
-«««	
-«««			«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
-«««				#delete lambda function: «res.target.name»_${id}
-«««				echo "delete lambda function: «res.target.name»_${id}"
-«««				aws --endpoint-url=http://localhost:4574 lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
-«««				
-«««			«ENDFOR»
 	'''
 
 	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
