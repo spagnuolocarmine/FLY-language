@@ -3,8 +3,8 @@
 |:-----------------:|:-:|
 |  Gitter chat 		| [![Join the chat at https://gitter.im/isislab-unisa/fly-language](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/isislab-unisa/fly-language?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)  |
 |  Building status 	| [![Build Status](https://travis-ci.org/spagnuolocarmine/FLY-language.svg?branch=master)](https://travis-ci.org/spagnuolocarmine/FLY-language) |
-|  Coverage status 	| [![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)  |
-<!--|  Documentation    | [https://spagnuolocarmine.github.io/FLY-language/](https://spagnuolocarmine.github.io/FLY-language/) |-->
+<!--|  Coverage status 	| [![Coverage Status](https://coveralls.io/repos/github/spagnuolocarmine/FLY-language/badge.svg?branch=master)](https://coveralls.io/github/spagnuolocarmine/FLY-language?branch=master)  |
+|  Documentation    | [https://spagnuolocarmine.github.io/FLY-language/](https://spagnuolocarmine.github.io/FLY-language/) |-->
 
 
 # FLY a Domain Specific Language for scientific computing on the Multi Cloud 
