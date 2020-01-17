@@ -70,6 +70,9 @@ The Standalone compiler are tested on several platform:
 | Ubuntu (18.04 or later)     | ✓   | ✓      |
 | OSX (10.12 Sierra or later) | ✓   | ✓      |
 
+## List of Publications:
+* *Towards a Domain-Specific Language for Scientific Computing on Multicloud Systems*, 1st International Workshop on Parallel Programming Models in High- Performance Cloud (ParaMo 2019).
+
 ## License
 
 Copyright ISISLab, 2019 Università degli Studi di Salerno.
