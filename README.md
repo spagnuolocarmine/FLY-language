@@ -44,17 +44,39 @@ Supported Languages:
 - Python 3
 - Node.js 8.10
 
+## Fly project maven archetype
+
+Download the [fly-project-quickstart.zip](https://github.com/spagnuolocarmine/FLY-language/releases/download/Alpha-1.5/fly-project-quickstart.zip)
+
+Unpack the fly-project-quickstart.zip:
+```
+unzip fly-project-quickstart.zip
+```
+
+Go to the subfolder local-repo inside the fly-project-quickstart and install the azureclient dependency:
+```
+cd fly-project-quickstart/src/main/resources/archetype-resources/local-repo/
+
+mvn install:install-file -Dfile=./azureclient-0.0.1-SNAPSHOT.jar -DgroupId=isislab -DartifactId=azureclient -Dversion=0.0.1-SNAPSHOT -Dpackaging=jar
+```
+
+Go to to the top of folder fly-project-quickstart.zip and install the maven archetype:
+
+```
+cd fly-project-quickstart/
+mvn install
+mvn archetype:crawl
+```
+
 ## Standalone FLY compiler
 
-Download the tar.gz at the following link:  
+Download the [fly_standalone.zip](https://github.com/spagnuolocarmine/FLY-language/releases/download/Alpha-1.5/fly_standalone.zip):  
 
-
-Unpack the __fly-compiler-ALPHA-01.tar.gz__ 
+Unzip the :
 ```
-tar -xvzf fly-compiler-ALPHA-01.tar.gz
+unzip fly_standalone.zip
 ```
-
-To compile and run a .fly program:
+Compile and run a .fly program :
 ```
 cd <path-to-compiler> 
 
