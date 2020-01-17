@@ -22,8 +22,8 @@ FLY is compiled in native code (Java code) and it is able to automatically explo
 | Faas Cloud Computing Infrastructure | Supported          | Under development  | Future development |
 |:-------------------------------------:|:--------------------:|:--------------------:|:--------------------:|
 | Amazon AWS                          | :heavy_check_mark: |                    |                    |
-| Microsoft Azure                     |                    | :heavy_check_mark: |                    |
-| Google Function                     |                    |                    | :heavy_check_mark: |
+| Microsoft Azure                     | :heavy_check_mark: |                    |                    |
+| Google Function                     |                    | :heavy_check_mark: |  |
 | IBM Bluemix/Apache OpenWhisk        |                    |                    | :heavy_check_mark: |
 
 ### Requirements
