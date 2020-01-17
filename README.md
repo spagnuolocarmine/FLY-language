@@ -60,7 +60,7 @@ cd fly-project-quickstart/src/main/resources/archetype-resources/local-repo/
 mvn install:install-file -Dfile=./azureclient-0.0.1-SNAPSHOT.jar -DgroupId=isislab -DartifactId=azureclient -Dversion=0.0.1-SNAPSHOT -Dpackaging=jar
 ```
 
-Go to to the top of folder fly-project-quickstart.zip and install the maven archetype:
+Go to to the top of folder fly-project-quickstart and install the maven archetype:
 
 ```
 cd fly-project-quickstart/
