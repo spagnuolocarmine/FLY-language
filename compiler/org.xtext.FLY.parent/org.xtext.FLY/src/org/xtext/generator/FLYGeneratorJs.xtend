@@ -47,6 +47,8 @@ import org.xtext.fLY.ArrayInit
 import org.xtext.fLY.ArrayValue
 import org.eclipse.emf.common.util.EList
 import org.eclipse.xtend.lib.macro.declaration.Declaration
+import java.util.HashSet
+import org.eclipse.emf.ecore.EObject
 
 class FLYGeneratorJs extends AbstractGenerator {
 	
@@ -57,6 +59,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 	int nthread = 0
 	int time = 0
 	FunctionDefinition root = null
+	Resource resourceInput
 	var id_execution = null
 	var user = ""
 	HashMap<String, HashMap<String, String>> typeSystem = null
@@ -68,6 +71,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		this.name=name_file
 		this.root = func
 		this.typeSystem=scoping
+		this.resourceInput = input
 		this.id_execution = id
 		if(!local){
 			this.env = (environment.right as DeclarationObject).features.get(0).value_s
@@ -86,11 +90,51 @@ class FLYGeneratorJs extends AbstractGenerator {
 		doGenerate(input,fsa,context) 
 	}
 	
+	def channelsNames(BlockExpression exps,String env) {
+
+		var names = new HashSet<String>();		
+		val chRecvs = resourceInput.allContents
+				.filter[it instanceof ChannelReceive]
+				.filter[functionContainer(it) === root.name]
+				.filter[((it as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains(env)] 
+				.map[it as ChannelReceive]
+				.map[it.target as VariableDeclaration]
+				
+				.map[it.name]
+		val chSends = resourceInput.allContents
+				.filter[it instanceof ChannelSend]
+				.filter[functionContainer(it) === root.name]
+				.filter[((it as ChannelSend).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains(env)] 
+				.map[it as ChannelSend]
+				.map[it.target as VariableDeclaration]
+				.map[it.name]
+				
+		while(chRecvs.hasNext()) {
+			names.add(chRecvs.next())
+		}
+		while(chSends.hasNext()) {
+			names.add(chSends.next())
+		}
+		
+		return names.toArray()
+	}
+	
+	def functionContainer(EObject e) {
+		var parent = e.eContainer
+		if (parent === null) {
+			return ""
+		} else if (parent instanceof FunctionDefinition) {
+			return (parent as FunctionDefinition).name
+		} else {
+			return functionContainer(parent)
+		}
+	}
+	
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		//fsa.generateFile(name + ".js", input.compileJS(root, env));
 		println("JS GENERATOR" + typeSystem.get(root.name))
-		fsa.generateFile(root.name+"_deploy.sh",input.compileScriptDeploy(root.name,false));
-		fsa.generateFile(root.name+"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
+		fsa.generateFile(root.name +"_"+ env +"_deploy.sh",input.compileScriptDeploy(root.name,false));
+		fsa.generateFile(root.name +"_"+ env +"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
 		if (this.isLocal) {
 			fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
 		} 
@@ -117,25 +161,31 @@ class FLYGeneratorJs extends AbstractGenerator {
 	def generateBodyJs(Resource resource,BlockExpression exps,List<Expression> parameters, String name, String env) {
 		'''
 			«IF env == "aws"»
-				var AWS = require("aws-sdk");
+				var AWS = require(\"aws-sdk\");
 				var sqs = new AWS.SQS();
 			«ELSEIF env=="azure"»
-				const { QueueServiceClient, StorageSharedKeyCredential } = require("@azure/storage-queue");
-				const { BlobServiceClient} = require("@azure/storage-blob");
-				const sharedKeyCredential = new StorageSharedKeyCredential("${storageName}","${storageKey}");
+				const { QueueServiceClient, StorageSharedKeyCredential } = require(\"@azure/storage-queue\");
+				const { BlobServiceClient} = require(\"@azure/storage-blob\");
+				const sharedKeyCredential = new StorageSharedKeyCredential(\""${storageName}"\",\""${storageKey}"\");
 				const queueServiceClient = new QueueServiceClient(
-				    `https://${account}.queue.core.windows.net`,
+				    \"https://"${storageName}".queue.core.windows.net\",
 				    sharedKeyCredential
 				);
 				
 				const blobServiceClient = new BlobServiceClient(
-				  `https://${account}.blob.core.windows.net`,
+				  \"https://"${storageName}".blob.core.windows.net\",
 				  sharedKeyCredential
 				);
+				
+				const containerClient = blobServiceClient.getContainerClient(\"bucket-"${id}"\");
+				
+				«FOR  ch :channelsNames(exps,env)»
+				const «ch» = queueServiceClient.getQueueClient(\"«ch»-"${id}"\");
+				«ENDFOR»
 			«ENDIF»
 			
-			var __dataframe = require("dataframe-js").DataFrame;
-			const readline = require("readline");
+			var __dataframe = require(\"dataframe-js\").DataFrame;
+			const readline = require(\"readline\");
 			«FOR req: exps.expressions.filter(RequireExpression)»
 			
 			«ENDFOR»
@@ -150,8 +200,8 @@ class FLYGeneratorJs extends AbstractGenerator {
 			exports.handler = async (event,context) => {
 			«ELSEIF env=="azure"»
 			module.exports = async function (context, req) {
-			id_func=req.id;
-			const data = req.body.data;
+				id_func = req.body.id;
+				const data = req.body.data;
 			«ENDIF»	
 				«FOR exp : parameters»
 					«IF env == "aws"»
@@ -176,22 +226,22 @@ class FLYGeneratorJs extends AbstractGenerator {
 				«ENDFOR»
 				
 				«IF env=="aws"»
-				__data = await sqs.getQueueUrl({ QueueName: 'termination-"${function}"-"${id}"-'+id_func'}).promise();
+				__data = await sqs.getQueueUrl({ QueueName: \"termination-"${function}"-"${id}"-\"+id_func}).promise();
 							
 				__params = {
-					MessageBody : JSON.stringify("terminate"),
+					MessageBody : JSON.stringify(\"terminate\"),
 					QueueUrl : __data.QueueUrl
 				}
 							
 				__data = await sqs.sendMessage(__params).promise();
 				«ELSEIF env=="azure"»
-					const termQueue=queueServiceClient.getQueueClient('termination-"${function}"-"${id}"-'+id_func);
-					const sendMessageResponse2 = await termQueue.sendMessage("terminate");
+					const termQueue=queueServiceClient.getQueueClient(\"termination-"${function}"-"${id}"-\"+id_func);
+					const sendMessageResponse2 = await termQueue.sendMessage(\"terminate\");
 				«ENDIF»
 				
 				context.res = {
 					status: 200, /* Defaults to 200 */
-					body: "Ok!"
+					body: \"Ok!\"
 				};
 			}
 		'''
@@ -317,7 +367,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		if (exp instanceof ChannelSend) {
 			if(env == "aws" || env == "aws-debug" ){
 				s += '''	
-						__data = await sqs.getQueueUrl({ QueueName: "«exp.target.name»_'${id}'"}).promise();
+						__data = await sqs.getQueueUrl({ QueueName: \"«exp.target.name»_"${id}"\"}).promise();
 						
 						__params = {
 							MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»),
@@ -445,7 +495,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 							typeSystem.get(scope).put(exp.name, "Table")
 							var path = (exp.right as DeclarationObject).features.get(1).value_s
 							s += '''
-								var __«exp.name» = await __dataframe.fromCSV(«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/«path»" «ELSE»«path»«ENDIF»)
+								var __«exp.name» = await __dataframe.fromCSV(«IF (exp as VariableDeclaration).onCloud && !(path.contains("https://")) » \"https://s3.us-east-2.amazonaws.com/bucket-"${id}""/«path»\" «ELSE»«path»«ENDIF»)
 								var «exp.name» = __«exp.name».toArray()
 							'''
 						}
@@ -456,19 +506,30 @@ class FLYGeneratorJs extends AbstractGenerator {
 							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
 								path = (exp.right as DeclarationObject).features.get(1).value_f.name
 							}else{
-								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
+								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\"');
 							}
-							return '''
+							if(env == "azure"){
+								return '''
+									var «exp.name»Client = containerClient.getBlobClient(«path»);
+									var «exp.name» = await «exp.name»Client.download();
+								'''
+							}
 							
-							'''
 						}
+						
 						
 						default: {
 							
 						}
 					}
 					
-				} else {
+				} else if(exp.right instanceof VariableFunction){
+					typeSystem.get(scope).put(exp.name,valuateArithmeticExpression(exp.right as VariableFunction,scope))
+					s += '''
+						var «exp.name» = «generateJsVariableFunction((exp.right as VariableFunction), true, scope)»;
+					'''
+				}else {
+					typeSystem.get(scope).put(exp.name,valuateArithmeticExpression(exp.right as ArithmeticExpression,scope))
 					s += '''
 						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression,scope)»;
 					'''
@@ -512,6 +573,10 @@ class FLYGeneratorJs extends AbstractGenerator {
 			s+='''
 				«generateJsArithmeticExpression(exp.variable,scope)»«exp.feature»
 			'''
+		}else if(exp instanceof VariableFunction){
+			s+='''
+				«generateJsVariableFunction(exp, true, scope)»
+			'''
 		} else if(exp instanceof LocalFunctionCall){
 			s += exp.target.name + "("
 			if (exp.input != null) {
@@ -551,7 +616,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
 						return '''
-							__data = await sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»_'${id}'}").promise();
+							__data = await sqs.getQueueUrl({ QueueName: \"«((assignment.value as CastExpression).target as ChannelReceive).target.name»_"${id}"}\").promise();
 							__data = await sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
 							«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __data.Messages[0].Body
 						'''
@@ -563,7 +628,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 				if (((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { // aws environment
 					return '''
-					__data = await sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»_'${id}'"}).promise();
+					__data = await sqs.getQueueUrl({ QueueName: \"«((assignment.value as CastExpression).target as ChannelReceive).target.name»_"${id}"\"}).promise();
 					__data = await sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
 					«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __data.Messages[0].Body
 					'''
@@ -699,8 +764,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 				}else{
 					return ''''''
 				}	
-			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') ||
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
+			} else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")) {
 				if(exp.index.indices.length==1){
 					return '''
 						for(var __«(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name» ){
@@ -717,6 +781,40 @@ class FLYGeneratorJs extends AbstractGenerator {
 				}else{
 					return ''''''
 				}
+			}else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File")) {
+					return '''
+						const __«(exp.index.indices.get(0) as VariableDeclaration).name» = readline.createInterface({
+							input: «(exp.object as VariableLiteral).variable.name».readableStreamBody,
+							crlfDelay: Infinity
+						});
+						for await (const «(exp.index.indices.get(0) as VariableDeclaration).name» of __«(exp.index.indices.get(0) as VariableDeclaration).name») {
+							«IF exp.body instanceof BlockExpression»
+								«FOR e: (exp.body as BlockExpression).expressions»
+									«generateJsExpression(e,scope)»
+								«ENDFOR»
+							«ELSE»
+								«generateJsExpression(exp.body,scope)»
+							«ENDIF»
+						}
+						
+					'''
+				
+			} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("String[]")){
+					if(exp.index.indices.length==1){
+						return '''
+							for(var __«(exp.index.indices.get(0) as VariableDeclaration).name»=0; __«(exp.index.indices.get(0) as VariableDeclaration).name»<«(exp.object as VariableLiteral).variable.name».length ; __«(exp.index.indices.get(0) as VariableDeclaration).name»++){
+								var «(exp.index.indices.get(0) as VariableDeclaration).name» = «(exp.object as VariableLiteral).variable.name»[__«(exp.index.indices.get(0) as VariableDeclaration).name»]
+								«IF exp.body instanceof BlockExpression»
+									«FOR e: (exp.body as BlockExpression).expressions»
+										«generateJsExpression(e,scope)»
+									«ENDFOR»
+								«ELSE»
+									«generateJsExpression(exp.body,scope)»
+								«ENDIF»
+							}
+						'''
+					}else
+						return''''''
 			}
 		} 
 	}
@@ -740,7 +838,10 @@ class FLYGeneratorJs extends AbstractGenerator {
 			else
 				return '''«generateJsArithmeticExpression(exp.left,scope)» «exp.feature» «generateJsArithmeticExpression(exp.right,scope)»'''
 		} else if (exp instanceof UnaryOperation) {
-			return '''«exp.feature»«generateJsArithmeticExpression(exp.operand,scope)»'''
+			if(exp.feature == "not")
+				return '''! («generateJsArithmeticExpression(exp.operand,scope)»)'''
+			else	
+				return '''«exp.feature» «generateJsArithmeticExpression(exp.operand,scope)»'''
 		} else if (exp instanceof ParenthesizedExpression) {
 			return '''(«generateJsArithmeticExpression(exp.expression,scope)»)'''
 		} else if (exp instanceof NumberLiteral) {
@@ -751,12 +852,16 @@ class FLYGeneratorJs extends AbstractGenerator {
 			return '''«exp.value»'''
 		}
 		if (exp instanceof StringLiteral) {
-			return '''"«exp.value»"'''
+			return '''\"«exp.value»\"'''
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
-			if ((exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
+			if ((exp.target.right instanceof DeclarationObject) && (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
 				return '''Math.random()'''
+			}else if (exp.feature.equals("length")){ 
+				return '''«exp.target.name».length'''
+			}else if(exp.feature.equals("containsKey")){
+				return '''«generateJsArithmeticExpression(exp.expressions.get(0),scope)» in «exp.target.name»'''
 			}else{
 				var s = exp.target.name + "." + exp.feature + "("
 			for (e : exp.expressions) {
@@ -809,6 +914,22 @@ class FLYGeneratorJs extends AbstractGenerator {
 			return ''''''
 		}
 	}
+
+		def generateJsVariableFunction(VariableFunction expression, Boolean t, String scope) {
+				var s = expression.target.name + "." + expression.feature + "("
+			for (exp : expression.expressions) {
+				s += generateJsArithmeticExpression(exp, scope)
+				if (exp != expression.expressions.last()) {
+					s += ","
+				}
+			}
+			s += ")"
+			if (t) {
+				s += ";"
+			}
+			return s
+		}
+
 	
 	def String valuateArithmeticExpression(ArithmeticExpression exp, String scope) {
 		if (exp instanceof NumberLiteral) {
@@ -903,7 +1024,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		}else if (exp instanceof VariableFunction) {
 			if (exp.target.typeobject.equals("var")) {
 				if (exp.feature.equals("split")) {
-					return "HashMap"
+					return "String[]"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
 				} else if (exp.feature.equals("concat") || exp.feature.equals("substring") ||
@@ -1162,11 +1283,11 @@ class FLYGeneratorJs extends AbstractGenerator {
 	az login --service-principal -u ${user} -t ${tenant} -p ${secret}
 	
 	#create the project folder
-	func init {app}$${id} --worker-runtime node --language javascript
+	func init ${app}${id} --worker-runtime node --language javascript
 	
 	#echo 'func init completed'
 	
-	cd {app}$${id}
+	cd ${app}${id}
 	
 	echo "npm install @azure/storage-queue"
 	npm install @azure/storage-queue
@@ -1209,12 +1330,15 @@ class FLYGeneratorJs extends AbstractGenerator {
 	#generete the folder for the function with the default file
 	func new --name ${function} --template "HttpTrigger"
 	
-	cd ${functiom}
-	echo '«generateBodyJs(resource,root.body,root.parameters,root.name,env)»' > index.js
+	cd ${function}
+	
+	#rm index.js
+	
+	echo "«generateBodyJs(resource,root.body,root.parameters,root.name,env)»" > index.js
 	
 	cd ..
 	
-	az functionapp create --resource-group flyrg${id} --consumption-plan-location westeurope --name ${app}${id} --storage-account  flyst${id} --runtime node
+	az functionapp create --resource-group flyrg${id} --consumption-plan-location westeurope --name ${app}${id} --storage-account  flysa${id} --runtime node
 		
 	until func azure functionapp publish ${app}${id}
 			do

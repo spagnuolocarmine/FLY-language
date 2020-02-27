@@ -909,22 +909,22 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 				return s
 			} else if (dec.right instanceof VariableFunction) {
-				if ((dec.right as VariableFunction).feature.equals("split")) {
-					typeSystem.get(scope).put(dec.name, "HashMap")
-					return '''
-						HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
-						int _«dec.name»_crt=0;
-						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0),scope)»)){
-							«dec.name».put(_«dec.name»_crt++,_«dec.name»);
-						}
-					'''
-				} else {
+//				if ((dec.right as VariableFunction).feature.equals("split")) {
+//					typeSystem.get(scope).put(dec.name, "Strin")
+//					return '''
+//						HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
+//						int _«dec.name»_crt=0;
+//						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0),scope)»)){
+//							«dec.name».put(_«dec.name»_crt++,_«dec.name»);
+//						}
+//					'''
+//				} else {
 					typeSystem.get(scope).put(dec.name,
 						valuateArithmeticExpression(dec.right as VariableFunction, scope))
 					return '''
 						«valuateArithmeticExpression(dec.right as VariableFunction,scope)» «dec.name» = «generateArithmeticExpression(dec.right as VariableFunction,scope)»;
 					'''
-				}
+//				}
 
 			} else if (dec.right instanceof CastExpression && ((dec.right as CastExpression).target instanceof ChannelReceive)){
 					if((((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")	||
@@ -1143,13 +1143,13 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 					List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
 					Boolean __exists_«id»=false;
 					for (S3ObjectSummary os: __result_objects_«id») {
-					    if(os.getKey().equals(«path.name»)){
+					    if(os.getKey().equals(«path.name».substring(«path.name».lastIndexOf("/")+1))){
 					    	__exists_«id» = true;
 					    	break;
 					    }
 					}
 					if(!__exists_«id»){
-						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name» , new File(«path.name»));
+						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name».substring(«path.name».lastIndexOf("/")+1) , new File(«path.name»));
 						__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
 						__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
 					}
@@ -1258,6 +1258,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
 			var language =  ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
 			var profile =((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+			var region=((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
 			return '''
 				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
 				__fly_environment.get("«dec_name»").put("profile","«profile»");
@@ -1265,6 +1266,8 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				__fly_environment.get("«dec_name»").put("memory",«memory»);
 				__fly_environment.get("«dec_name»").put("time",«time»);
 				__fly_environment.get("«dec_name»").put("language","«language»");
+				__fly_environment.get("«dec_name»").put("region","«region»");
+				
 			'''
 		}else if (env.equals("azure")){
 			var threads = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
@@ -1272,6 +1275,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
 			var language =  ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_s
 			var profile =((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+			var region = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
 			return '''
 				__fly_environment.put("«dec_name»", new HashMap<String,Object>());
 				__fly_environment.get("«dec_name»").put("profile","«profile»");
@@ -1279,6 +1283,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 «««				__fly_environment.get("«dec_name»").put("memory",«memory»);
 				__fly_environment.get("«dec_name»").put("time",«time»);
 				__fly_environment.get("«dec_name»").put("language","«language»");
+				__fly_environment.get("«dec_name»").put("region","«region»");
 			'''
 		}
 		
@@ -1557,11 +1562,15 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				}
 				if (expression.type.equals("Integer")) {
 		
-					return '''(int)((«generateArithmeticExpression(expression.target,scope)» instanceof Short)? new Integer((Short) «generateArithmeticExpression(expression.target,scope)»):(Integer) «generateArithmeticExpression(expression.target,scope)»)'''
+					return '''(int)((«generateArithmeticExpression(expression.target,scope)» instanceof Short)? 
+					new Integer((Short) «generateArithmeticExpression(expression.target,scope)»):(«generateArithmeticExpression(expression.target,scope)» instanceof String)?
+					Integer.parseInt((String)«generateArithmeticExpression(expression.target,scope)») :(Integer) «generateArithmeticExpression(expression.target,scope)»)'''
 				}
 			
 				if (expression.type.equals("Double")) {
-					return '''(double)((«generateArithmeticExpression(expression.target,scope)» instanceof Float)? new Double((Float) «generateArithmeticExpression(expression.target,scope)»):(Double) «generateArithmeticExpression(expression.target,scope)»)'''
+					return '''(double)((«generateArithmeticExpression(expression.target,scope)» instanceof Float)? 
+					new Double((Float) «generateArithmeticExpression(expression.target,scope)»): («generateArithmeticExpression(expression.target,scope)» instanceof String)? 
+					Double.parseDouble((String)«generateArithmeticExpression(expression.target,scope)») :(Double) «generateArithmeticExpression(expression.target,scope)»)'''
 				}
 				if (expression.type.equals("Dat")) {
 					return '''(Table) «generateArithmeticExpression(expression.target,scope)»'''
@@ -2515,7 +2524,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
 				int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
 				for(String __tmp_line: «(call.input.f_index as VariableLiteral).variable.name».list()){
-					__tmp_line="https://flysa+"+__id_execution+".blob.core.windows.net/bucket-"+__id_execution+"/"+__tmp_line;
+					//__tmp_line="https://flysa+"+__id_execution+".blob.core.windows.net/bucket-"+__id_execution+"/"+__tmp_line;
 					try{
 						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
 						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
@@ -2714,7 +2723,8 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 					'''
 				}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Directory")){ //TO-DO: add support directory
 					return '''
-						for (String «(indexes.indices.get(0) as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».list()) {
+						for (String __«(indexes.indices.get(0) as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».list()) {
+							String «(indexes.indices.get(0) as VariableDeclaration).name» = «(object as VariableLiteral).variable.name».getAbsolutePath()+"/"+ __«(indexes.indices.get(0) as VariableDeclaration).name»;
 							«IF body instanceof BlockExpression»
 								«FOR exp : body.expressions »
 									«generateExpression(exp,scope)»
@@ -3201,7 +3211,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 						}
 					}
 				} else if (exp.feature.equals("split")) {
-					return "HashMap"
+					return "String[]"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
 				} else if (exp.feature.equals("concat") || exp.feature.equals("substring")||

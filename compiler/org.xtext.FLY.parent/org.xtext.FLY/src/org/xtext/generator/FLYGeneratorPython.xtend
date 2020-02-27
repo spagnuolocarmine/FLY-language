@@ -433,7 +433,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 							}
 							return '''
 							if 'http' in «path»:
-								«exp.name» = urllib.request.urlopen(«path»)
+								«exp.name» = urllib.request.urlopen(urllib.request.Request(«path»,headers={'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'}))
 							else:
 								«exp.name» = open(«path»,'rw')'''
 						}
@@ -872,7 +872,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			} else if(exp.feature.equals("containsKey")){
 				return '''«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)» in «exp.target.name»'''
 			} else if(exp.feature.equals("split")){
-				return '''«exp.target.name».split(«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)»)'''
+				return '''str(«exp.target.name»).split(«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)»)'''
 			}
 		} else if (exp instanceof TimeFunction) {
 			if (exp.value !== null) {
@@ -1045,7 +1045,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			println(exp.target)
 			if (exp.target.typeobject.equals("var")) {
 				if (exp.feature.equals("split")) {
-					return "HashMap"
+					return "String[]"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
 				} else if (exp.feature.equals("concat") || exp.feature.equals("substring") ||
