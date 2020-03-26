@@ -16,6 +16,7 @@
 # Package Files #
 *.jar
 **/*.jar
+!repository/**/*.jar
 *.war
 **/*.war
 *.ear
@@ -38,5 +39,3 @@
 **/xtext-gen
 **/xtend-gen
 **/plugin.xml_gen
-
-!repository/
