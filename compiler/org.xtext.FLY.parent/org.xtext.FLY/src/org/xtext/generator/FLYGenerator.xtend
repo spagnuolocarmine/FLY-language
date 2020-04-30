@@ -1418,6 +1418,29 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 							});
 						}
 						'''
+				case "aws-debug":
+					return '''
+						__sqs_«element.environment.name».createQueue(new CreateQueueRequest("termination-«element.target.name»-"+__id_execution+"-«func_ID»"));
+						LinkedTransferQueue<String> __termination_«element.target.name»_ch  = new LinkedTransferQueue<String>();
+						final String __termination_«element.target.name»_url = __sqs_«element.environment.name».getQueueUrl("termination-«element.target.name»-"+__id_execution+"-«func_ID»").getQueueUrl();
+						for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+							__thread_pool_«local».submit(new Callable<Object>() {
+								@Override
+								public Object call() throws Exception {
+									while(__wait_on_termination_«element.target.name») {
+										ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__termination_«element.target.name»_url).
+												withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
+										ReceiveMessageResult __res = __sqs_«element.environment.name».receiveMessage(__recmsg);
+										for(Message msg : __res.getMessages()) { 
+											__termination_«element.target.name»_ch.put(msg.getBody());
+											__sqs_«element.environment.name».deleteMessage(__termination_«element.target.name»_url, msg.getReceiptHandle());
+										}
+									}
+									return null;
+								}
+							});
+						}
+						'''
 				case "azure":
 					return '''
 						«element.environment.name».createQueue("termination-«element.target.name»-"+__id_execution+"-«func_ID»");

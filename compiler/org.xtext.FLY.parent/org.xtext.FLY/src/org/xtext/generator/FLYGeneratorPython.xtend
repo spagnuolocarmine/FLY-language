@@ -1494,7 +1494,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	services:
 	 localstack:
-	   image: localstack/localstack:latest
+	   image: localstack/localstack:0.9.6
 	   ports:
 	     - '4567-4593:4567-4593'
 	     - '\${PORT_WEB_UI-8080}:\${PORT_WEB_UI-8080}'

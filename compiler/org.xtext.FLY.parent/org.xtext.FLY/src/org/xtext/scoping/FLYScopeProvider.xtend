@@ -27,7 +27,7 @@ import java.util.Arrays
  */
 class FLYScopeProvider extends AbstractFLYScopeProvider {
 
-	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","azure"));
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws-debug","aws","azure"));
 	override getScope(EObject context, EReference reference) {
 
 		val pBlock = getParentBlock(context)
