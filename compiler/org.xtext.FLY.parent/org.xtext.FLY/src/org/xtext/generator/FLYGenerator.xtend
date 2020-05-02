@@ -412,8 +412,8 @@ class FLYGenerator extends AbstractGenerator {
 				switch env {
 					case "aws":{
 						return '''
-							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
-							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«call.environment.name»_undeploy.sh");
+							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«call.environment.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
 							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_undeploy_«call.target.name».environment();
 							
 							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
@@ -427,7 +427,7 @@ class FLYGenerator extends AbstractGenerator {
 								__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
 								__p_undeploy_«call.target.name».waitFor();
 								if(__p_undeploy_«call.target.name».exitValue()!=0){
-									System.out.println("Error in «call.target.name»_undeploy.sh ");
+									System.out.println("Error in «call.target.name»_«call.environment.name»_undeploy.sh ");
 									System.exit(1);
 								}
 							} catch (Exception e) {
@@ -437,8 +437,8 @@ class FLYGenerator extends AbstractGenerator {
 					} 
 					case "aws-debug":{
 						return '''
-							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_undeploy.sh");
-							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
+							Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«call.environment.name»_undeploy.sh");
+							ProcessBuilder __processBuilder_undeploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«call.environment.name»_undeploy.sh «user» «call.target.name» "+__id_execution);
 							Map<String, String> __env_undeploy_«call.target.name» = __processBuilder_undeploy_«call.target.name».environment();
 							
 							__processBuilder_undeploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
@@ -452,7 +452,7 @@ class FLYGenerator extends AbstractGenerator {
 								__p_undeploy_«call.target.name»= __processBuilder_undeploy_«call.target.name».start();
 								__p_undeploy_«call.target.name».waitFor();
 								if(__p_undeploy_«call.target.name».exitValue()!=0){
-									System.out.println("Error in «call.target.name»_undeploy.sh ");
+									System.out.println("Error in «call.target.name»_«call.environment.name»_undeploy.sh ");
 									System.exit(1);
 								}
 							} catch (Exception e) {
@@ -474,6 +474,7 @@ class FLYGenerator extends AbstractGenerator {
 		
 		def deployFlyFunctionOnCloud(FlyFunctionCall call) {
 			var environment = (call.environment.right as DeclarationObject).features.get(0).value_s
+			var env_name = call.environment.name
 			println(deployed_function)
 			if (!deployed_function.get(environment).contains(call.target.name)){
 				deployed_function.get(environment).add(call.target.name)
@@ -485,7 +486,7 @@ class FLYGenerator extends AbstractGenerator {
 						__termination_deploy_on_cloud.add(__thread_pool_deploy_on_cloud.submit( new Callable<Object> (){
 							@Override
 							public Object call() throws Exception{
-								Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«environment»_deploy.sh");
+								Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«env_name»_deploy.sh");
 								ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«environment»_deploy.sh «user» «call.target.name» "+__id_execution);
 								__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 								Map<String, String> __env_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
@@ -499,7 +500,7 @@ class FLYGenerator extends AbstractGenerator {
 									__p_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».start();
 									__p_deploy_«call.target.name».waitFor();
 									if(__p_deploy_«call.target.name».exitValue()!=0){
-										System.out.println("Error in «call.target.name»_«environment»_deploy.sh ");
+										System.out.println("Error in «call.target.name»_«env_name»_deploy.sh ");
 										System.exit(1);
 									}
 								} catch (Exception e) {
@@ -515,7 +516,7 @@ class FLYGenerator extends AbstractGenerator {
 						__termination_deploy_on_cloud.add(__thread_pool_deploy_on_cloud.submit( new Callable<Object> (){
 							@Override
 							public Object call() throws Exception{
-								«call.environment.name».publishFunction("«call.target.name»","src-gen/«call.target.name»_«environment»_deploy.sh");
+								«call.environment.name».publishFunction("«call.target.name»","src-gen/«call.target.name»_«env_name»_deploy.sh");
 								return null;
 							}
 						}));

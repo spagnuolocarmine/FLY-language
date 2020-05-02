@@ -67,7 +67,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 	String user = null
 	Resource resourceInput
 	boolean isLocal
-	boolean isAsync
+	boolean isAsync 
+	String env_name=""
 	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
 	ArrayList listParams = null
 	List<String> allReqs=null
@@ -79,6 +80,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		root = func
 		typeSystem = scoping
 		id_execution = id
+		env_name=environment.name
 		if (!local) {
 			env = (environment.right as DeclarationObject).features.get(0).value_s
 			user = (environment.right as DeclarationObject).features.get(1).value_s
@@ -121,8 +123,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 		}else {
 			if(env.equals("aws-debug"))
 				fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
-			fsa.generateFile(root.name +"_"+ env +"_deploy.sh", input.compileScriptDeploy(root.name, false))
-			fsa.generateFile(root.name +"_"+ env + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
+			fsa.generateFile(root.name +"_"+ env_name +"_deploy.sh", input.compileScriptDeploy(root.name, false))
+			fsa.generateFile(root.name +"_"+ env_name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
 		}
 	}
 	

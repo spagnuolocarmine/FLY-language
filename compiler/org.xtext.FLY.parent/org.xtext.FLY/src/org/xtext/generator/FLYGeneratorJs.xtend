@@ -60,6 +60,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 	int time = 0
 	FunctionDefinition root = null
 	Resource resourceInput
+	String env_name=""
 	var id_execution = null
 	var user = ""
 	HashMap<String, HashMap<String, String>> typeSystem = null
@@ -73,6 +74,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		this.typeSystem=scoping
 		this.resourceInput = input
 		this.id_execution = id
+		this.env_name = environment.name
 		if(!local){
 			this.env = (environment.right as DeclarationObject).features.get(0).value_s
 			this.user = (environment.right as DeclarationObject).features.get(1).value_s
@@ -133,8 +135,8 @@ class FLYGeneratorJs extends AbstractGenerator {
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		//fsa.generateFile(name + ".js", input.compileJS(root, env));
 		println("JS GENERATOR" + typeSystem.get(root.name))
-		fsa.generateFile(root.name +"_"+ env +"_deploy.sh",input.compileScriptDeploy(root.name,false));
-		fsa.generateFile(root.name +"_"+ env +"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
+		fsa.generateFile(root.name +"_"+ env_name +"_deploy.sh",input.compileScriptDeploy(root.name,false));
+		fsa.generateFile(root.name +"_"+ env_name +"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
 		if (this.isLocal) {
 			fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
 		} 
