@@ -79,8 +79,8 @@ BlockExpression:
 ;
 
 VariableDeclaration:
-	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=Object | right=FlyFunctionCall | right=DeclarationObject)) (onCloud?='on' environment+=[VariableDeclaration] (',' environment+=[VariableDeclaration])* )? |
-	{ConstantDeclaration} typeobject='const' =>(name = ID '='  (right=ArithmeticExpression | right=Object ))															
+	{VariableDeclaration} typeobject='var' =>(name=ID '=' (right=ArithmeticExpression | right=FlyFunctionCall | right=DeclarationObject | right=Object)) (onCloud?='on' environment+=[VariableDeclaration] (',' environment+=[VariableDeclaration])* )? |
+	{ConstantDeclaration} typeobject='const' =>(name = ID '='  (right=ArithmeticExpression | right=Object ))														
 ;
 
 Object:

@@ -17,6 +17,11 @@ import org.eclipse.emf.ecore.EObject
 import org.xtext.fLY.FunctionDefinition
 import org.xtext.fLY.Fly
 import org.xtext.fLY.FunctionReturn
+import org.xtext.fLY.VariableDeclaration
+import org.xtext.fLY.DeclarationObject
+import org.xtext.fLY.FlyFunctionCall
+import java.util.ArrayList
+import java.util.Arrays
 
 /**
  * This class contains custom validation rules. 
@@ -25,7 +30,182 @@ import org.xtext.fLY.FunctionReturn
  */
 class FLYValidator extends AbstractFLYValidator {
 	
-////@Inject extension FlyTypeProvider
+	public static val MISSING_ATTR = "org.text.fly.MissingAttribute"
+	public static val WRONG_ATTR_TYPE = "org.text.fly.WrongAttributeType"
+	public static val WRONG_ATTR = "org.text.fly.WrongAttribute"
+	public static val WRONG_LOCAL_NUM = "org.text.fly.WrongLocalDefinitionLength"
+	
+	public static val WRONG_AWS_DECLARATION = "org.xtext.fly.WrongAWSDeclaration"
+	public static val WRONG_AWS_NUM = ""
+	public static val WRONG_AWS_CONC = ""
+	public static val WRONG_AWS_MEM = ""
+	public static val WRONG_AWS_TIME = ""
+	
+	public static val WRONG_AZURE_DECLARATION = "org.xtext.fly.WrongAzureDeclaration"
+	public static val WRONG_AZURE_NUM = ""
+	public static val WRONG_AZURE_CONC = ""
+	public static val WRONG_AZURE_TIME = ""
+	
+	public static ArrayList listEnvironment = new ArrayList(Arrays.asList("aws","aws-local","azure","local"));
+	
+	
+	//@Check
+	def checkVariableDeclaration(VariableDeclaration dec){
+		
+		if(dec.right instanceof DeclarationObject){
+			if((dec.right as DeclarationObject).features.get(0).feature != "type"){
+				error("Missing type attribute",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,MISSING_ATTR)
+				
+			}
+			
+			if((dec.right as DeclarationObject).features.get(0).value_s.nullOrEmpty){
+				error("Attribute type must be a non-empty String",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_ATTR_TYPE)
+			}
+			var type = (dec.right as DeclarationObject).features.get(0).value_s
+			if (listEnvironment.contains(type)){
+				checkEnvironment(dec.right as DeclarationObject)
+			}else if(type.equals("channel")){
+				
+			}else if(type.equals("random")){
+				
+			}else if(type.equals("file")){
+				
+			}else if(type.equals("dataframe")){
+				
+			}
+			
+		} else if(dec.right instanceof Object) {
+			return //nothing to check
+		}else if(dec.right instanceof ArithmeticException){
+			return //nothing to check
+		}else if(dec.right instanceof FlyFunctionCall){
+			return //nothing to check
+		}
+		
+	}
+	
+	
+	//@Check
+	def checkEnvironment(DeclarationObject right){
+		var type = right.features.get(0).value_s
+		if(type.equals("local")){
+			if(right.features.length!=2){
+				error("Error in local environment declaration: wrong number of attributes.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_LOCAL_NUM)
+			}
+			if(!right.features.get(1).feature.equals("nthread")){
+				error("Error in local environment declaration: missing argument nthread.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_LOCAL_NUM)
+			}
+			if(right.features.get(1).value_t <= 2){
+				error("Error in local environment declaration: nthread must be an int grater than 2.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_LOCAL_NUM)
+			}
+		}else if(type.equals("aws") || type.equals("aws-debug")){
+			if(right.features.length!=9){
+				error("Error in AWS environment declaration: wrong number of attributes.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_NUM)
+			}
+			if(right.features.get(1).feature.equals("profile")){
+				error("Error in AWS environment declaration: missing argument user.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(1).value_s.isNullOrEmpty){
+				error("Error in AWS environment declaration: user must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(2).feature.equals("access_key")){
+				error("Error in AWS environment declaration: missing argument access_key.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(2).value_s.isNullOrEmpty){
+				error("Error in AWS environment declaration: access_key must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(3).feature.equals("secret_key")){
+				error("Error in AWS environment declaration: missing argument secret_key.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(3).value_s.isNullOrEmpty){
+				error("Error in AWS environment secret_key: user must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(4).feature.equals("region")){
+				error("Error in AWS environment declaration: missing argument region.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(4).value_s.isNullOrEmpty){
+				error("Error in AWS environment declaration: region must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(5).feature.equals("language")){
+				error("Error in AWS environment declaration: missing argument language.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(5).value_s.isNullOrEmpty){
+				error("Error in AWS environment declaration: language must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(6).feature.equals("concurrency")){
+				error("Error in AWS environment declaration: missing argument concurrency.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(6).value_t<=2 || right.features.get(6).value_t>1000 ){
+				error("Error in AWS environment declaration: concurrency must be an int between 2 and 1000.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_CONC)
+			}
+			if(right.features.get(7).feature.equals("memory")){
+				error("Error in AWS environment declaration: missing argument memory.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(7).value_t<128 || right.features.get(7).value_t>3008){
+				error("Error in AWS environment declaration: memory must be an int between 128 and 3008.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_MEM)
+			}
+			if(right.features.get(8).feature.equals("time_limit")){
+				error("Error in AWS environment declaration: missing argument time_limit.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_DECLARATION)
+			}
+			if(right.features.get(8).value_t<=0 || right.features.get(8).value_t>900){
+				error("Error in AWS environment declaration: time_limit must be an int between 0 and 900.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AWS_TIME)
+			}
+		}else if(type.equals("azure")){
+			if(right.features.length!=9){
+				error("Error in Azure environment declaration: wrong number of attributes.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_NUM)
+			}
+			if(right.features.get(1).feature.equals("client_id")){
+				error("Error in Azure environment declaration: missing argument client_id.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(1).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: client_id must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(2).feature.equals("tenant_id")){
+				error("Error in Azure environment declaration: missing argument tenant_id.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(2).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: tenant_id must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(3).feature.equals("secret_key")){
+				error("Error in Azure environment declaration: missing argument secret_key.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(3).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: secret_key must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(4).feature.equals("subscription_id")){
+				error("Error in Azure environment declaration: missing argument subscription_id.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(4).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: subscription_id must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(5).feature.equals("region")){
+				error("Error in Azure environment declaration: missing argument region.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(5).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: region must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(6).feature.equals("language")){
+				error("Error in Azure environment declaration: missing argument language.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(6).value_s.isNullOrEmpty){
+				error("Error in Azure environment declaration: language must be a non-empty string.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_DECLARATION)
+			}
+			if(right.features.get(7).feature.equals("concurrency")){
+				error("Error in Azure environment declaration: missing argument concurrency.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_CONC)
+			}
+			if(right.features.get(7).value_t<2 || right.features.get(7).value_t>1000){
+				error("Error in Azure environment declaration: concurrency must be an int between 2 and 1000.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_CONC)
+			}
+			if(right.features.get(8).feature.equals("time_limit")){
+				error("Error in Azure environment declaration: missing argument time_limit.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_TIME)
+			}
+			if(right.features.get(8).value_t<=0 || right.features.get(8).value_t>600){
+				error("Error in Azure environment declaration: time_limit must be an int between 0 and 600.",FLYPackage.Literals::VARIABLE_DECLARATION__RIGHT,WRONG_AZURE_TIME)
+			}
+		}
+	}
+	
+//@Inject extension FlyTypeProvider
 //	
 //	public static val FORWARD_REFERENCE = "org.text.fly.ForwardReference";
 //

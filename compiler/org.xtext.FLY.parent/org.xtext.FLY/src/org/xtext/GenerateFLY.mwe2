@@ -49,9 +49,10 @@ Workflow {
         		generate = true
    			}			
 			
-//			validator = {
-//				 composedCheck = "org.eclipse.xtext.validation.NamesAreUniqueValidator"
-//			}
+			validator={
+				composedCheck = "org.eclipse.xtext.validation.NamesAreUniqueValidator"
+				composedCheck ="org.xtext.validation.FLYValidator"
+			}
 		}
 	}
 }

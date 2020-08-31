@@ -93,8 +93,7 @@ class FLYGenerator extends AbstractGenerator {
 			fsa.generateFile(name + ".java", resource.compileJava)
 			// generate .js or .py file
 			for (element : resource.allContents.toIterable.filter(FlyFunctionCall)) {
-				var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).
-					value_s;
+				var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).value_s;
 				var async = element.isAsync;
 				if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
 					if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
@@ -128,7 +127,6 @@ class FLYGenerator extends AbstractGenerator {
 				}
 			}
 		}
-		
 	}
 		
 	

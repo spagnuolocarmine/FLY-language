@@ -76,7 +76,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			val allElements = exp.getContainerOfType(typeof(Fly)).elements
 			val containingElement = allElements.findFirst[isAncestor(it, exp)]
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
-				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
+				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[!((right as DeclarationObject).features.get(0).value_s.nullOrEmpty)].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
@@ -84,7 +84,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
-				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
+				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[!((right as DeclarationObject).features.get(0).value_s.nullOrEmpty)].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
@@ -116,11 +116,11 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("DataFrame")]) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[!((right as DeclarationObject).features.get(0).value_s.nullOrEmpty)].filter[(right as DeclarationObject).features.get(0).value_s.equals("DataFrame")]) {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[!((right as DeclarationObject).features.get(0).value_s.nullOrEmpty)].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]) {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
@@ -128,7 +128,7 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 			declaration.add(element)
 		}
 		for (element : allElements.subList(0, allElements.indexOf(containingElement) + 1).typeSelect(
-			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
+			typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[!((right as DeclarationObject).features.get(0).value_s.nullOrEmpty)].filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]) {
 			declaration.add(element)
 		}
 		return declaration
