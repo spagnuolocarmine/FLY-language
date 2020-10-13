@@ -897,8 +897,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				println(exp)
 				var i = generatePyArithmeticExpression(exp.indexes.get(0).value ,scope, local);
 				var j = generatePyArithmeticExpression(exp.indexes.get(1).value ,scope, local);
-			
-				var col = typeSystem.get(scope).get((exp.name as VariableDeclaration).name).split("_").get(2)
+	
 				return '''
 					«(exp.name as VariableDeclaration).name»[(«i»*__«(exp.name as VariableDeclaration).name»_cols)+«j»]['value']
 				'''

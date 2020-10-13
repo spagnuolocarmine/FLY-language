@@ -485,7 +485,7 @@ class FLYGenerator extends AbstractGenerator {
 							@Override
 							public Object call() throws Exception{
 								Runtime.getRuntime().exec("chmod +x src-gen/«call.target.name»_«env_name»_deploy.sh");
-								ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«environment»_deploy.sh «user» «call.target.name» "+__id_execution);
+								ProcessBuilder __processBuilder_deploy_«call.target.name» = new ProcessBuilder("/bin/bash", "-c", "src-gen/«call.target.name»_«env_name»_deploy.sh «user» «call.target.name» "+__id_execution);
 								__processBuilder_deploy_«call.target.name».redirectOutput(ProcessBuilder.Redirect.INHERIT);
 								Map<String, String> __env_deploy_«call.target.name» = __processBuilder_deploy_«call.target.name».environment();
 								__processBuilder_deploy_«call.target.name».redirectError(ProcessBuilder.Redirect.INHERIT);
@@ -2615,8 +2615,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 	
 
 	def generateChannelReceive(ChannelReceive receive, String scope) {
-		return '''
-//			«(receive.target as VariableDeclaration).name».take()'''
+		return '''«(receive.target as VariableDeclaration).name».take()'''
 //		var env = (((receive.target.environment.right as DeclarationObject).features.get(0)) as DeclarationFeature).
 //			value_s
 //		if (env.equals("smp")) {
@@ -2806,7 +2805,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				}
 				'''
 			} 
-		} else if (object instanceof VariableFunction) {
+		} else if (object instanceof VariableFunction) { //TODO: check the implementation
 			return '''
 			«generateVariableFunction(object as VariableFunction,false,scope)»
 			for(HashMap<String,Object> «(indexes.indices.get(0) as VariableDeclaration).name» : __«(object as VariableFunction).target.name»_rows.values()){

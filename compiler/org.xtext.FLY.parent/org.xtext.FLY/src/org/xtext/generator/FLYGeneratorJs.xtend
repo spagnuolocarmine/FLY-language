@@ -858,8 +858,8 @@ class FLYGeneratorJs extends AbstractGenerator {
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
-			if ((exp.target.right instanceof DeclarationObject) && (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
-				return '''Math.random()'''
+			if ((exp.target.right instanceof DeclarationObject)&& (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
+				return ''' Math.random()'''
 			}else if (exp.feature.equals("length")){ 
 				return '''«exp.target.name».length'''
 			}else if(exp.feature.equals("containsKey")){
