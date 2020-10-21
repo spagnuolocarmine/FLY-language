@@ -51,6 +51,7 @@ import org.xtext.fLY.FlyFunctionCall
 import java.util.ArrayList
 import java.util.Arrays
 import org.xtext.fLY.EnvironemtLiteral
+import org.xtext.fLY.DeclarationFeature
 import org.eclipse.xtext.service.AllRulesCache.AllRulesCacheAdapter
 
 class FLYGeneratorPython extends AbstractGenerator {
@@ -114,6 +115,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.map[it.lib]
 			.toList
 		allReqs.add("pytz")
+		allReqs.add("ortools")
+		allReqs.add("numpy")
+		allReqs.add("pandas")
+		allReqs.add("pymysql")
+		
 		if(env.equals("azure"))
 			allReqs.add("azure-storage-queue")
 		saveToRequirements(allReqs, fsa)
@@ -122,7 +128,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			fsa.generateFile(root.name + ".py", input.compilePython(root.name, true))	
 		}else {
 			if(env.equals("aws-debug"))
-				fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
+			fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
 			fsa.generateFile(root.name +"_"+ env_name +"_deploy.sh", input.compileScriptDeploy(root.name, false))
 			fsa.generateFile(root.name +"_"+ env_name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
 		}
@@ -177,6 +183,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		fsa.generateFile("requirements.txt", res)
 	} 
 
+	/*PEPPE: funzione in più rispetto alla mia versione */
 	def paramsName(List<Expression> expressions) {
 			val tmp = new ArrayList()
 			for(Expression e: expressions){
@@ -257,40 +264,38 @@ class FLYGeneratorPython extends AbstractGenerator {
 			«ENDIF»
 			import json
 			import urllib.request
+			import pymysql
 			
 			«IF env.contains("aws")»				
 			import boto3
 			«IF env.equals("aws")»
-				sqs = boto3.resource('sqs')
+				__sqs = boto3.resource('sqs', verify=False)
+				__rds = boto3.client('rds', verify=False)
 			«ELSE»
-				sqs = boto3.resource('sqs',endpoint_url='http://192.168.0.1:4576')
+				__sqs = boto3.resource('sqs',endpoint_url='http://192.168.0.1:4576')
 			«ENDIF»
 
 			«FOR chName : channelNames»
-				«chName» = sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
+				«chName» = __sqs.get_queue_by_name(QueueName='«chName»-"${id}"')
 			«ENDFOR»
 			«ELSEIF env == "azure"»
 			import azure.functions as func
-			from azure.storage.queue import QueueService 
-			from azure.storage.queue.models import QueueMessageFormat
+			from azure.storage.queue import QueueServiceClient
 			«ENDIF»
 			
 			«IF env.contains("aws") »			
 			def handler(event,context):
 				__environment = 'aws'
-				id_func=event['id']
 				data = event['data']
 			«ELSEIF env == "azure"»
 			def main(req: func.HttpRequest):
 				__environment = 'azure'
-				__queue_service = QueueService(account_name='"${storageName}"', account_key='"${storageKey}"')
-				__queue_service.encode_function = QueueMessageFormat.text_base64encode
+				__queue_service = QueueServiceClient(account_url='https://"${storageName}".queue.core.windows.net', credential='"${storageKey}"')
 				__event = req.get_json()
-				id_func= __event['id']
 				data = __event['data']
 			«ENDIF»
 				«FOR exp : parameters»
-					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")» // || typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
+					«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table") || typeSystem.get(name).get((exp as VariableDeclaration).name).equals("File")»
 						__columns = data[0].keys()
 						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
@@ -313,10 +318,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«generatePyExpression(exp,name, local)»
 				«ENDFOR»
 				«IF env.contains("aws") »			
-					__syncTermination = sqs.get_queue_by_name(QueueName='termination-"${function}"-"${id}"-'+str(id_func))
+					__syncTermination = __sqs.get_queue_by_name(QueueName='termination-"${function}"-"${id}"')
 					__syncTermination.send_message(MessageBody=json.dumps('terminate'))
 				«ELSEIF env == "azure"»
-					__queue_service.put_message('termination-"${function}"-"${id}"-'+str(id_func), 'terminate')
+					__queue_service_client = __queue_service.get_queue_client('termination-"${function}"-"${id}"')
+					__queue_service_client.send_message('terminate')
 				«ENDIF»
 		'''
 	}
@@ -350,7 +356,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 					)
 				«ENDIF»
 			«ELSEIF env=="azure"»
-			__queue_service.put_message('«exp.target.name»-"${id}"', json.dumps(«generatePyArithmeticExpression(exp.expression, scope, local)»))
+			__queue_service_client = __queue_service.get_queue_client('«exp.target.name»-"${id}"')
+			__queue_service_client.send_message(«generatePyArithmeticExpression(exp.expression, scope, local)»)
 			«ENDIF»
 
 			'''
@@ -408,7 +415,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
 					
 					switch (type) {
-						case "dataframe": {
+						case "dataframe": { /*PEPPE: io ho impostato la path nel 2 e il separator nel 3 */
 							typeSystem.get(scope).put(exp.name, "Table")
 							var path = "";
 							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
@@ -425,7 +432,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 								«exp.name» = pd.read_csv('«uri»', sep='«sep»')
 							'''		
 						}
-						case "file":{
+						case "file":{ /*differente e con lettera maiuscola */
 							typeSystem.get(scope).put(exp.name, "File")
 							var path = "";
 							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
@@ -439,10 +446,84 @@ class FLYGeneratorPython extends AbstractGenerator {
 							else:
 								«exp.name» = open(«path»,'rw')'''
 						}
+						case "sql":{
+							if (exp.onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")){
+								var instance = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var db_name = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+								return '''
+									__instances_«exp.name» = __rds.describe_db_instances(DBInstanceIdentifier='«instance»')
+									
+									__endpoint_«exp.name» = __instances_«exp.name».get('DBInstances')[0].get('Endpoint').get('Address')
+									
+									«exp.name» = pymysql.connect(
+									  	host= __endpoint_«exp.name»,
+									  	user= '«user_name»',
+									  	passwd= '«password»',
+									  	db= '«db_name»'
+									)
+									__cursor«exp.name» = «exp.name».cursor()
+
+									'''	 					
+							} else if (exp.onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure")){
+								var resource_group = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var instance = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var db_name = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s 
+								return 
+								'''
+									«exp.name» = pymysql.connect(
+									  	host= '«instance».mysql.database.azure.com',
+									  	user= '«user_name»',
+									  	passwd= '«password»',
+									  	db= '«db_name»'
+									)
+									__cursor«exp.name» = «exp.name».cursor()
+									
+								'''	 					
+							} else {
+								var db_name = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var endpoint = ""
+								if (((exp.right as DeclarationObject).features.size) > 4)
+									endpoint = (exp.right as DeclarationObject).features.get(4).value_s
+								else endpoint = "localhost"
+								return '''
+									«exp.name» = pymysql.connect(
+									  	host= __endpoint_«exp.name»,
+									  	user= '«user_name»',
+									  	passwd= '«password»',
+									  	db= '«db_name»'
+									)
+									__cursor«exp.name» = «exp.name».cursor()
+									
+								'''
+							}
+						} case "query":{
+							var connection = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_f.name
+							return '''
+							«exp.name» = __cursor«connection».execute(
+							«IF 
+								((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s.nullOrEmpty
+							»
+							«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
+							« ELSE » 
+							'«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»'
+							«ENDIF»
+							)
+							'''
+						}
 						default: {
 							return ''''''
 						}
 					}
+				} else if(exp.right instanceof VariableFunction){
+					s += '''
+						«exp.name» = «generatePyVariableFunction((exp.right as VariableFunction), true, scope)»
+					'''
 				} else { 
 					typeSystem.get(scope).put(exp.name, valuateArithmeticExpression(exp.right as ArithmeticExpression,scope,local))
 					s += '''
@@ -452,11 +533,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 
 			} 
 		} else if (exp instanceof LocalFunctionCall) {
-			val fc = (exp as LocalFunctionCall)
-			val fd = (fc.target as FunctionDefinition)
-			val inputs = (fc.input as LocalFunctionInput).inputs
-			//functionCalled.put(fd.name, fd)
-			s += '''«((exp as LocalFunctionCall).target).name»(«FOR par : inputs»«generatePyArithmeticExpression(par, scope, local)»«IF !par.equals(inputs.last)», «ENDIF»«ENDFOR»)'''
+			s += exp.target.name + "("
+			if (exp.input != null) {
+				for (input : exp.input.inputs) {
+					s += generatePyArithmeticExpression(input, scope, local)
+					if (input != exp.input.inputs.last) {
+						s += ","
+					}
+				}
+			}
+			s += ")"
 		} else if (exp instanceof FunctionDefinition) {
 			val fd = (exp as FunctionDefinition)
 			val name = fd.name
@@ -521,6 +607,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 			
 		} else if (exp instanceof NativeExpression){
 			s +='''«generateNativeEpression(exp,scope,local)»'''
+		} else if(exp instanceof VariableFunction){
+			s+='''
+				«generatePyVariableFunction(exp, true, scope)»
+			'''
 		}
 			
 		return s
@@ -588,9 +678,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 						«IF local»
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(«channel.name».readline())
 						«ELSE»
-						__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
+						__queue_service_client = __queue_service.get_queue_client('«channel.name»-"${id}"')
+						__msg = next(queue_client.receive_messages())
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(__msg.content)
-						__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
+						queue_client.delete_message(__msg)
 						«ENDIF»
 						'''
 					} else if ((assignment.value as CastExpression).type.equals("Double")) {
@@ -598,9 +689,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 						«IF local»
 						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(«channel.name».readline())
 						«ELSE»
-						__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
-						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» float(__msg.content)
-						__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
+						__queue_service_client = __queue_service.get_queue_client('«channel.name»-"${id}"')
+						__msg = next(queue_client.receive_messages())
+						«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» int(__msg.content)
+						queue_client.delete_message(__msg)
 						«ENDIF»
 						'''
 					}
@@ -629,9 +721,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 					«IF local»
 					«channel.name».readline()
 					«ELSE»
-					__msg =__queue_service.get_messages('«channel.name»-"${id}"')[0]
+					__queue_service_client = __queue_service.get_queue_client('«channel.name»-"${id}"')
+					__msg = next(queue_client.receive_messages())
 					«generatePyArithmeticExpression(assignment.feature, scope, local)» «assignment.op» __msg.content
-					__queue_service.delete_message('«channel.name»-"${id}"',__msg.id, __msg.pop_receipt)
+					queue_client.delete_message(__msg)
 					«ENDIF»
 					'''	
 					}
@@ -666,7 +759,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					if ((assignment.feature_obj as IndexObject).indexes.length == 2) {
 						var i = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(0).value ,scope, local);
 						var j = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(1).value ,scope, local);
-						
+						/*PEPPE: perché è commentato? */
 						//var col = typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).split("_").get(2)
 						
 						return '''
@@ -875,6 +968,17 @@ class FLYGeneratorPython extends AbstractGenerator {
 				return '''«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)» in «exp.target.name»'''
 			} else if(exp.feature.equals("split")){
 				return '''str(«exp.target.name»).split(«generatePyArithmeticExpression(exp.expressions.get(0),scope,local)»)'''
+			} else{
+				var s = ""
+					s = exp.target.name + "." + exp.feature + "("
+					for (e : exp.expressions) {
+						s += generatePyArithmeticExpression(e, scope, local)
+						if (e != exp.expressions.last()) {
+							s += ","
+						}
+					}
+					s += ")"
+					return s
 			}
 		} else if (exp instanceof TimeFunction) {
 			if (exp.value !== null) {
@@ -923,10 +1027,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 			if(env.equals("aws")){ //TODO cancellare messaggio, controllare se non viene mai invocata
 				return '''«channelName».receive_messages()[0]'''
 			}else if(env.equals("azure")){
-				return '''__queue_service.receive_messages('«channelName»-"${id}"')[0]'''
-			}else{
-				return'''
+				return '''
+					__queue_service_client = __queue_service.get_queue_client('«channelName»-"${id}"')
+					__msg = next(queue_client.receive_messages())
+					queue_client.delete_message(__msg)
 				'''
+			}else{
+				return''''''
 			}
 			
 		} else if (exp instanceof LocalFunctionCall) {
@@ -1069,6 +1176,36 @@ class FLYGeneratorPython extends AbstractGenerator {
 		}
 	}
 	
+	def generatePyVariableFunction(VariableFunction expression, Boolean local, String scope) {
+		if (expression.target.right instanceof DeclarationObject) {
+			var type = (expression.target.right as DeclarationObject).features.get(0).value_s
+			
+			switch (type){
+				case "query":{
+					var queryType = (expression.target.right as DeclarationObject).features.get(1).value_s
+					var connection = (expression.target.right as DeclarationObject).features.get(2).value_f.name
+					if(expression.feature.equals("execute")){
+						if (queryType.equals("value")){
+							return '''
+							__cursor«connection».fetchone()[0]
+							''' 
+						}else{
+							return '''
+							«connection».commit()
+						''' 
+						}
+					}
+				} 				
+				default :{
+					return generatePyArithmeticExpression(expression, scope, local)
+				}
+			} 
+		}else{
+			return generatePyArithmeticExpression(expression, scope, local)
+		}
+	
+	}
+	
 	def CharSequence compilePython(Resource resource, String name, boolean local) '''
 		«generateBodyPyLocal(root.body,root.parameters,name,env, local)»
 	'''
@@ -1144,6 +1281,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 						"logs:PutLogEvents"
 					],
 					"Resource": "*"
+				},
+				{
+				    "Effect": "Allow",
+				    "Action": "rds:*",
+				    "Resource": "*"
+				},
+				{
+				    "Effect": "Allow",
+				    "Action": ["rds:Describe*"],
+				    "Resource": "*"
 				}
 			]
 		}' > policyDocument.json
@@ -1178,9 +1325,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	echo "Installing requirements"
 	
-	virtualenv venv -p «language»
+	virtualenv v-env -p «language»
 	
-	source venv/bin/activate
+	source v-env/bin/activate
 	
 	
 	echo "Checking wheter pip3 is installed"
@@ -1200,41 +1347,16 @@ class FLYGeneratorPython extends AbstractGenerator {
 	fi
 		
 	pip3 install -r ./src-gen/requirements.txt
-			
-	echo ""
-	echo "add precompliled libraries"
 	
-	cd venv/lib/python3.6/site-packages/
-	«IF allReqs.contains("ortools") »
-	echo "installing ortools"
-	rm -rf ortools*
-	wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	echo "ortools installed"
-	«ENDIF»
-	«IF allReqs.contains("pandas")»
-	echo "installing pandas"
-	rm -rf pandas*
-	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
-	echo "pandas installed"
-	«ENDIF»
-	«IF allReqs.contains("numpy")»
-	echo "installing numpy"
-	rm -rf numpy*
-	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	echo "numpy installed"
-	«ENDIF»
+	deactivate
+	
+	cd v-env/lib/«language»/site-packages/
+	
 	echo "creating zip package"
 	zip -q -r9 ../../../../${id}\_lambda.zip .
 	echo "zip created"
 	
 	cd ../../../../
-	
 	
 	echo "«generateBodyPy(root.body,root.parameters,name,env, local)»
 	
@@ -1245,27 +1367,31 @@ class FLYGeneratorPython extends AbstractGenerator {
 	«ENDFOR»
 	" > ${function}.py
 	
-	
-	zip -g ${id}_lambda.zip ${function}.py
-	
-	deactivate
-	
+	zip -g ${id}_lambda.zip ${function}.py	
 		
 	#create the lambda function
 	echo "creation of the lambda function"
 	
-	echo "zip file too big, uploading it using s3"
-	echo "creating bucket for s3"
-	aws s3 --profile ${user} mb s3://${function}${id}bucket
-	echo "s3 bucket created. uploading file"
-	aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-	echo "file uploaded, creating function"
-	aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
-	echo "lambda function created"
+	if [ $(wc -c < ${id}_lambda.zip) -lt 50000000 ]; then
+		aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		
+		while [ $? -ne 0 ]; do
+			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		done
+	else
+		echo "zip file too big, uploading it using s3"
+		echo "creating bucket for s3"
+		aws s3 --profile ${user} mb s3://${function,,}${id}bucket
+		echo "s3 bucket created. uploading file"
+		aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+		echo "file uploaded, creating function"
+		aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		echo "lambda function created"
+	fi
 	
 	
 	# clear 
-	rm -r venv/
+	rm -r v-env/
 	rm ${function}.py
 	rm ${id}_lambda.zip
 	rm rolePolicyDocument.json
@@ -1378,10 +1504,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	
 	echo "Installing requirements"
+		
+	virtualenv v-env -p «language»
 	
-	virtualenv venv -p «language»
-	
-	source venv/bin/activate
+	source v-env/bin/activate
 	
 	
 	echo "Checking wheter pip3 is installed"
@@ -1400,50 +1526,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 		python get-pip.py
 	fi
 		
-	pip3 install pytz
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "pip install pytz failed"
-	    exit 1
-	fi
-	
-	
-	pip3 install ortools
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "pip install ortools failed"
-	    exit 1
-	fi
-	
 	pip3 install -r ./src-gen/requirements.txt
 	
-			
-	echo ""
-	echo "add precompliled libraries"
+	deactivate
 	
-	cd venv/lib/python3.6/site-packages/
-	echo "installing ortools"
-	rm -rf ortools*
-	wget https://files.pythonhosted.org/packages/64/13/8c8d0fe23da0767ec0f8d00ad14619a20bc6d55ca49a3bd13700e629a1be/ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm ortools-6.10.6025-cp36-cp36m-manylinux1\_x86\_64.whl
-	echo "ortools installed"
-	
-	echo "installing pandas"
-	rm -rf pandas*
-	wget https://files.pythonhosted.org/packages/f9/e1/4a63ed31e1b1362d40ce845a5735c717a959bda992669468dae3420af2cd/pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm pandas-0.24.0-cp36-cp36m-manylinux1\_x86\_64.whl 
-	echo "pandas installed"
-	
-	echo "installing numpy"
-	rm -rf numpy*
-	wget https://files.pythonhosted.org/packages/7b/74/54c5f9bb9bd4dae27a61ec1b39076a39d359b3fb7ba15da79ef23858a9d8/numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	unzip numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	rm numpy-1.16.0-cp36-cp36m-manylinux1\_x86\_64.whl
-	echo "numpy installed"
+	cd v-env/lib/«language»/site-packages/
 	
 	echo "creating zip package"
 	zip -q -r9 ../../../../${id}\_lambda.zip .
@@ -1462,7 +1549,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	" > ${function}.py
 	
 	
-	zip -g ${id}_lambda.zip ${function}.py
+	zip -r -g -9 ${id}_lambda.zip ${function}.py
 	
 	deactivate
 	
@@ -1470,14 +1557,22 @@ class FLYGeneratorPython extends AbstractGenerator {
 	#create the lambda function
 	echo "creation of the lambda function"
 	
-	echo "zip file too big, uploading it using s3"
-	echo "creating bucket for s3"
-	aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug mb s3://${function}${id}bucket
-	echo "s3 bucket created. uploading file"
-	aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug cp ${id}_lambda.zip s3://${function}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-	echo "file uploaded, creating function"
-	aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
-	echo "lambda function created"
+	if [ $(wc -c < ${id}_lambda.zip) -lt 50000000 ]; then
+		aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		
+		while [ $? -ne 0 ]; do
+			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		done
+	else
+		echo "zip file too big, uploading it using s3"
+		echo "creating bucket for s3"
+		aws s3 --profile ${user} mb s3://${function,,}${id}bucket
+		echo "s3 bucket created. uploading file"
+		aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+		echo "file uploaded, creating function"
+		aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		echo "lambda function created"
+	fi
 	
 	
 	# clear 
@@ -1489,13 +1584,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 	'''
 	
 	def CharSequence compileDockerCompose(Resource resource)'''
-	docker network create -d bridge --subnet 192.168.0.0/24 --gateway 192.168.0.1 mynet
+	docker network create -d bridge --subnet 192.168.0.0/24 --gateway 192.168.0.1 flynet
 	echo "
 	version: '2.1'
 	
 	services:
 	 localstack:
-	   image: localstack/localstack:0.9.6
+	   image: localstack/localstack:0.10.6
 	   ports:
 	     - '4567-4593:4567-4593'
 	     - '\${PORT_WEB_UI-8080}:\${PORT_WEB_UI-8080}'
@@ -1537,7 +1632,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 		fi
 		
 		app=$1
-		function=$2
+		function=$(echo "$2" | awk '{print tolower($0)}')
 		id=$3
 		user=$4
 		tenant=$5
@@ -1545,6 +1640,24 @@ class FLYGeneratorPython extends AbstractGenerator {
 		subscription=$7
 		storageName=$8
 		storageKey=$9
+		
+		echo "Checking that azure-cli is installed"
+		which az
+		if [ $? -eq 0 ]; then
+		      echo "azure-cli is installed, continuing..."
+		else
+		      echo "You need azure-cli to deploy this function. Google 'azure-cli install'"
+		      exit 1
+		fi
+
+		echo "Checking that Azure Function Core Tools is installed"
+		which func
+		if [ $? -eq 0 ]; then
+			echo "Azure Function Core Tools is installed, continuing..."
+		else
+			echo "You need Azure Function Core Tools to deploy this function. Google 'Azure Function Core Tools install'"
+			exit 1
+		fi
 		
 		az login --service-principal -u ${user} -t ${tenant} -p ${secret}
 		
@@ -1585,7 +1698,18 @@ class FLYGeneratorPython extends AbstractGenerator {
 			rm -f host.json
 			echo '{
 				"version": "2.0",
-				"functionTimeout": "«String.format("%02d:%02d:%02d",0,timeout/60,timeout%60)»"
+				  "logging": {
+				    "applicationInsights": {
+				      "samplingSettings": {
+				        "isEnabled": true,
+				        "excludedTypes": "Request"
+				      }
+				    }
+				  },
+				  "extensionBundle": {
+				    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+				    "version": "[1.*, 2.0.0)"
+				  }
 			}' > host.json;
 			
 			
@@ -1600,17 +1724,24 @@ class FLYGeneratorPython extends AbstractGenerator {
 		
 		echo "Creating Function's files..."
 		
-		echo '{
+		echo '
+		{
 		  "scriptFile": "function.py",
 		  "bindings": [
 		    {
-		      "authLevel": "system",
+		      "authLevel": "admin",
 		      "type": "httpTrigger",
 		      "direction": "in",
 		      "name": "req",
 		      "methods": [
+		        "get",
 		        "post"
 		      ]
+		    },
+		    {
+		      "type": "http",
+		      "direction": "out",
+		      "name": "$return"
 		    }
 		  ]
 		}' > function.json
@@ -1640,6 +1771,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 				
 		az  logout
 		deactivate
+		cd ..
+		rm -rf ${app}${id}
 	'''
 	
 	def CharSequence AzureUndeploy(Resource resource, String string, boolean local)'''
@@ -1657,6 +1790,15 @@ class FLYGeneratorPython extends AbstractGenerator {
 			user=$1
 			function=$2
 			id=$3
+			
+			# delete termination queue
+					
+			echo "get termination-${function}-${id} queue-url"
+			termination_queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name termination-${function}-${id} --query 'QueueUrl')
+			echo ${termination_queue_url//\"}
+			
+			echo "delete queue at url ${termination_queue_url//\"} "
+			aws sqs --profile ${user} delete-queue --queue-url ${termination_queue_url//\"}
 			
 			# delete user queue
 			«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
@@ -1683,7 +1825,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def CharSequence AWSDebugUndeploy(Resource resource, String string, boolean local,boolean debug)'''
 	#!/bin/bash
 	
-	docker-compose down				
+	docker-compose down
+	docker network rm flynet
 	'''
 
 	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){

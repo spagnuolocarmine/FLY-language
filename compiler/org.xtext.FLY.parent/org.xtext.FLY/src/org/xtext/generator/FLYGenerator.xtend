@@ -62,6 +62,8 @@ import java.util.List
 import java.util.Arrays
 import org.eclipse.xtend.lib.macro.declaration.Declaration
 import org.xtext.fLY.EnvironemtLiteral
+import org.xtext.fLY.ObjectLiteral
+import org.xtext.services.FLYGrammarAccess.VariableDeclarationElements
 
 /**
  * Generates code from your model files on save.
@@ -158,6 +160,7 @@ class FLYGenerator extends AbstractGenerator {
 		import java.time.LocalDate;
 		import tech.tablesaw.api.Table;
 		import tech.tablesaw.io.csv.CsvReadOptions;
+		import tech.tablesaw.io.csv.CsvWriteOptions;
 		import tech.tablesaw.columns.Column;
 		import tech.tablesaw.selection.Selection;
 		import tech.tablesaw.table.Rows;
@@ -177,6 +180,8 @@ class FLYGenerator extends AbstractGenerator {
 		import java.util.Map;
 		import java.util.Scanner;
 		import org.apache.commons.io.FileUtils;
+		import org.apache.commons.io.FileUtils;
+		import java.sql.*;
 		«IF checkAWS() || checkAWSDebug()»
 		import com.amazonaws.AmazonClientException;
 		import com.amazonaws.auth.AWSStaticCredentialsProvider;
@@ -222,6 +227,13 @@ class FLYGenerator extends AbstractGenerator {
 		import com.amazonaws.services.s3.model.ListObjectsV2Result;
 		import com.amazonaws.services.s3.model.PutObjectRequest;
 		import com.amazonaws.services.s3.model.S3ObjectSummary;
+		import com.amazonaws.services.rds.AmazonRDS;
+		import com.amazonaws.services.rds.AmazonRDSClient;
+		import com.amazonaws.services.rds.model.DBInstance;
+		import com.amazonaws.services.rds.model.DescribeDBInstancesRequest;
+		import com.amazonaws.services.rds.model.DescribeDBInstancesResult;
+		import com.amazonaws.services.rds.model.Endpoint;
+		
 		«ENDIF»
 		«IF checkAWSDebug()»
 		import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
@@ -301,6 +313,7 @@ class FLYGenerator extends AbstractGenerator {
 						__id_execution+"",
 						"«((element.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s»");
 					«element.name».init();
+					«element.name».createFunctionApp("flyapp«element.name»","«(element.right as DeclarationObject).features.get(6).value_s»");
 				«ENDFOR»
 				«IF resource.allContents.toIterable.filter(FlyFunctionCall)
 				.filter[!(environment.right as DeclarationObject).features.get(0).value_s.equals("smp")].length > 0»
@@ -360,18 +373,18 @@ class FLYGenerator extends AbstractGenerator {
 					«generateFunctionDefinition(element)»
 				«ENDIF»	
 			«ENDFOR»	
-			
+
 			private static String __generateString(Table t,int id) {
 				StringBuilder b = new StringBuilder();
-				b.append("{\"id\":"+id+",\"data\":");
+				b.append("{\"id\":\""+id+"\",\"data\":");
 				b.append("[");
 				int i_r = t.rowCount();
 				for(Row r : t) {
 					b.append('{');
 					for (int i=0;i< r.columnCount();i++) {
-						b.append("\""+ r.columnNames().get(i) +"\":"+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
+						b.append("\""+ r.columnNames().get(i) +"\":\""+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
 					}
-					b.append("}"+(((i_r != 1 ))?",":""));
+					b.append("\"}"+(((i_r != 1 ))?",":""));
 					i_r--;
 				}
 				b.append("]}");
@@ -384,15 +397,14 @@ class FLYGenerator extends AbstractGenerator {
 				b.append("[");
 				String[] tmp = s.split("\n");
 				for(String t: tmp){
-					b.append("\""+t+"\"");
+					b.append(t);
 					if(t != tmp[tmp.length-1]){
 						b.append(",");
-					}
+					} 
 				}
 				b.append("]}");
 				return b.toString();
 			}
-		
 		
 	}
 	'''
@@ -687,6 +699,11 @@ class FLYGenerator extends AbstractGenerator {
 								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
 								.withRegion("«region»")
 								.build();
+								
+							static AmazonRDS __rds_«dec.name» = AmazonRDSClient.builder()
+								.withCredentials(new AWSStaticCredentialsProvider(«dec.name»))
+								.withRegion("«region»")
+								.build();
 						'''
 					}
 					case "azure":{
@@ -745,20 +762,112 @@ class FLYGenerator extends AbstractGenerator {
 						
 					}
 					case "dataframe":{
-							var path = (dec.right as DeclarationObject).features.get(1).value_s
-				
-								typeSystem.get(scope).put(dec.name, "Table")
+						var table_name = (dec.right as DeclarationObject).features.get(1).value_s
+						var source = (dec.right as DeclarationObject).features.get(2)
+						var separator = "";
+						var header = "";
+						var query = "";
+						if(source.value_s.nullOrEmpty){
+							if (((dec.right as DeclarationObject).features.size) > 3)
+							query = (dec.right as DeclarationObject).features.get(3).value_s
+						} else {
+							if (((dec.right as DeclarationObject).features.size) > 3)
+							separator = (dec.right as DeclarationObject).features.get(3).value_s
+							if (((dec.right as DeclarationObject).features.size) > 4)
+							header = (dec.right as DeclarationObject).features.get(4).value_s
+						}	
+						
+						typeSystem.get(scope).put(dec.name, "Table")
+						if(source.value_s.nullOrEmpty){
 							return '''
-								Table «dec.name» = Table.read().csv(CsvReadOptions
-									.builder(«IF dec.onCloud && ! (path.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«path»" «ELSE»"«path»"«ENDIF»)
-									.maxNumberOfColumns(5000)
-									.tableName("«dec.name»")
-									.separator('«(dec.right as DeclarationObject).features.get(2).value_s»')
-								);
-								«IF dec.onCloud»
-								 	«deployFileOnCloud(dec,id_execution)»
-								«ENDIF»
+							Table «dec.name» = Table.read().db(
+								«source.value_f.name».prepareStatement(
+								«IF !query.nullOrEmpty»
+								"«query»"
+								«ELSE»
+								"SELECT * FROM «table_name»" «ENDIF» 
+								).executeQuery());
+								'''
+						}else{
+							return '''
+							Table «dec.name» = Table.read().csv(CsvReadOptions
+																.builder(«IF dec.onCloud && ! (source.value_s.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«source.value_s»" «ELSE»"«source.value_s»"«ENDIF»)
+																.tableName("«table_name»")
+																«IF !separator.nullOrEmpty»
+																.separator('«separator»') «ENDIF»
+																«IF !header.nullOrEmpty»
+																.header(«header») «ENDIF»
+															);
 							'''
+						}
+					}
+					case "sql":{
+						if (dec.onCloud && (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")){
+							var instance = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+							var db_name = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+							var user_name = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+							var password = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+							return '''
+								DescribeDBInstancesRequest __request_«dec.name» = new DescribeDBInstancesRequest().withDBInstanceIdentifier("«instance»");
+
+								DescribeDBInstancesResult __response_«dec.name» = __rds_«dec.environment.get(0).name».describeDBInstances(__request_«dec.name»);
+
+								List<DBInstance> __listInstance_«dec.name» = __response_«dec.name».getDBInstances();
+
+								Endpoint __endpoint_«dec.name» = __listInstance_«dec.name».get(0).getEndpoint();
+								
+								Class.forName("com.mysql.jdbc.Driver").newInstance();
+								Connection «dec.name» = DriverManager.getConnection("jdbc:mysql://" + __endpoint_«dec.name».getAddress() + "/«db_name»?user=«user_name»&password=«password»");
+							'''	 					
+						}else if (dec.onCloud && (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure")){
+							var resource_group = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+							var instance = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+							var db_name = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+							var user_name = ((dec.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+							var password = ((dec.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s 
+							return '''
+								
+								Class.forName("com.mysql.jdbc.Driver").newInstance();
+								Connection «dec.name» = DriverManager.getConnection("jdbc:mysql://" + «dec.environment.get(0).name».getDBEndpoint("«resource_group»", "«instance»")
+									+ "/«db_name»?useSSL=true&requireSSL=false&user=«user_name»&password=«password»");
+
+							'''	 					
+						} else {
+							var db_name = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+							var user_name = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+							var password = ((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+							var endpoint = ""
+							if (((dec.right as DeclarationObject).features.size) > 4)
+								endpoint = (dec.right as DeclarationObject).features.get(4).value_s
+							else endpoint = "localhost"
+							return '''
+							Class.forName("com.mysql.jdbc.Driver").newInstance();
+							Connection «dec.name» = DriverManager.getConnection("jdbc:mysql://«endpoint»/«db_name»?user=«user_name»&password=«password»");
+							'''	 
+						}
+						
+					}
+					case "query":{
+						var query_type = ((dec.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+						if (query_type.equals("update")){
+							typeSystem.get(scope).put(dec.name, "int")
+						}else if (query_type.equals("value")){
+							typeSystem.get(scope).put(dec.name, "Table")
+						} else {
+							typeSystem.get(scope).put(dec.name, "Table")
+						}
+						var connection = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_f.name
+						return '''
+						PreparedStatement «dec.name» = «connection».prepareStatement(														
+						«IF 
+							((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s.nullOrEmpty
+						»
+						«((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
+						« ELSE » 
+						"«((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»"
+						«ENDIF»
+						);
+						'''	 
 					}
 					default: {
 						return ''''''
@@ -908,16 +1017,18 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 				return s
 			} else if (dec.right instanceof VariableFunction) {
-//				if ((dec.right as VariableFunction).feature.equals("split")) {
-//					typeSystem.get(scope).put(dec.name, "Strin")
-//					return '''
-//						HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
-//						int _«dec.name»_crt=0;
-//						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0),scope)»)){
-//							«dec.name».put(_«dec.name»_crt++,_«dec.name»);
-//						}
-//					'''
-//				} else {
+				/* PEPPE: perché è commentato?
+				 * if ((dec.right as VariableFunction).feature.equals("split")) {
+					typeSystem.get(scope).put(dec.name, "HashMap")
+					return '''
+						HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
+						int _«dec.name»_crt=0;
+						for(String _«dec.name» : «(dec.right as VariableFunction).target.name».«(dec.right as VariableFunction).feature»(«generateArithmeticExpression((dec.right as VariableFunction).expressions.get(0),scope)»)){
+							«dec.name».put(_«dec.name»_crt++,_«dec.name»);
+						}
+					'''
+				} else {
+				 */
 					typeSystem.get(scope).put(dec.name,
 						valuateArithmeticExpression(dec.right as VariableFunction, scope))
 					return '''
@@ -954,6 +1065,12 @@ class FLYGenerator extends AbstractGenerator {
 							typeSystem.get(scope).put(dec.name, "String")
 							return '''
 								String «dec.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+							'''
+						} else if ((dec.right as CastExpression).type.equals("ArrayList")) {
+							typeSystem.get(scope).put(dec.name, "ArrayList")
+							return '''
+								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+								ArrayList «dec.name» = new Gson().fromJson(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»,new TypeToken<ArrayList<Object>>() {}.getType());
 							'''
 						}
 					}else if((((dec.right as CastExpression).target as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp") ){ 
@@ -1251,7 +1368,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				«ENDIF»
 			'''
 		}
-		else if (env.contains("aws")) {
+		else if (env.contains("aws")) { /*PEPPE: qui c'è una region in più */
 			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
 			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
@@ -1387,7 +1504,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		}
 		
 	}
-	
+
 		def generateTerminationQueue(FlyFunctionCall element) {
 			var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
 			filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0)
@@ -1396,9 +1513,9 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			switch env {
 				case "aws":
 					return '''
-						__sqs_«element.environment.name».createQueue(new CreateQueueRequest("termination-«element.target.name»-"+__id_execution+"-«func_ID»"));
+						__sqs_«element.environment.name».createQueue(new CreateQueueRequest("termination-«element.target.name»-"+__id_execution));
 						LinkedTransferQueue<String> __termination_«element.target.name»_ch  = new LinkedTransferQueue<String>();
-						final String __termination_«element.target.name»_url = __sqs_«element.environment.name».getQueueUrl("termination-«element.target.name»-"+__id_execution+"-«func_ID»").getQueueUrl();
+						final String __termination_«element.target.name»_url = __sqs_«element.environment.name».getQueueUrl("termination-«element.target.name»-"+__id_execution).getQueueUrl();
 						for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 							__thread_pool_«local».submit(new Callable<Object>() {
 								@Override
@@ -1419,9 +1536,9 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 						'''
 				case "aws-debug":
 					return '''
-						__sqs_«element.environment.name».createQueue(new CreateQueueRequest("termination-«element.target.name»-"+__id_execution+"-«func_ID»"));
+						__sqs_«element.environment.name».createQueue(new CreateQueueRequest("termination-«element.target.name»-"+__id_execution));
 						LinkedTransferQueue<String> __termination_«element.target.name»_ch  = new LinkedTransferQueue<String>();
-						final String __termination_«element.target.name»_url = __sqs_«element.environment.name».getQueueUrl("termination-«element.target.name»-"+__id_execution+"-«func_ID»").getQueueUrl();
+						final String __termination_«element.target.name»_url = __sqs_«element.environment.name».getQueueUrl("termination-«element.target.name»-"+__id_execution).getQueueUrl();
 						for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
 							__thread_pool_«local».submit(new Callable<Object>() {
 								@Override
@@ -1442,13 +1559,13 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 						'''
 				case "azure":
 					return '''
-						«element.environment.name».createQueue("termination-«element.target.name»-"+__id_execution+"-«func_ID»");
+						«element.environment.name».createQueue("termination-«element.target.name»-"+__id_execution);
 						LinkedTransferQueue<String> __termination_«element.target.name»_ch  = new LinkedTransferQueue<String>();
 						__thread_pool_«local».submit(new Callable<Object>() {
 							@Override
 							public Object call() throws Exception {
 								while(__wait_on_termination_«element.target.name») {
-									List<String> __recMsgs = azu.peeksFromQueue("termination-«element.target.name»-"+__id_execution+"-«func_ID»",10);
+									List<String> __recMsgs = «element.environment.name».peeksFromQueue("termination-«element.target.name»-"+__id_execution,10);
 									for(String msg : __recMsgs) { 
 										__termination_«element.target.name»_ch.put(msg);
 									}
@@ -1704,31 +1821,32 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		if (expression.target.right instanceof DeclarationObject) {
 			var type = (expression.target.right as DeclarationObject).features.get(0).value_s
 			switch (type){
+				case "query":{
+					if(expression.feature.equals("execute")){
+						var queryType = (expression.target.right as DeclarationObject).features.get(1).value_s
+						if (queryType.equals("update")){
+							return '''«(expression.target as VariableDeclaration).name».executeUpdate();'''
+						}else if (queryType.equals("value")){
+							return '''Table.read().db(
+									«(expression.target as VariableDeclaration).name».executeQuery()
+									).printAll().replaceAll("[^\\d.]+|\\.(?!\\d)", "");'''
+						} else {
+							return '''Table.read().db(
+									«(expression.target as VariableDeclaration).name».executeQuery()
+									);'''
+						}
+					}
+					
+				}
 				case "dataframe":{
-					if(expression.feature.equals("rows")){
+					if(expression.feature.equals("exportHeader")){
 						return '''
-						HashMap<Integer, HashMap<String,Object> > __«expression.target.name»_rows = new HashMap<Integer, HashMap<String,Object>>();
-						    	for(int __i=0; __i<«expression.target.name».rowCount();__i++) {
-						    		HashMap<String, Object> __tmp = new HashMap<String, Object>();
-						    		for (String __col : «expression.target.name».columnNames()) {
-						    			__tmp.put(__col,«expression.target.name».get(__i, «expression.target.name».columnIndex(__col)));
-									}
-									 		__«expression.target.name»_rows.put(__i,__tmp);
-									 	}
+						«expression.target.name».write().csv(«generateArithmeticExpression(expression.expressions.get(0), scope)»);
 					'''
-					}else if(expression.feature.equals("delete")){
-						var path = ((expression.target as VariableDeclaration).right as DeclarationObject).features.get(1).value_s;
-						var filename = path.split("/").last 
+					} else if(expression.feature.equals("export")){
 						return '''
-							«IF (expression.target as VariableDeclaration).onCloud»
-								try {
-								    s3.deleteObject("bucket-"+__id_execution), «filename»);
-								} catch (AmazonServiceException e) {
-								    System.err.println(e.getErrorMessage());
-								    System.exit(1);
-								}
-							«ENDIF»
-						'''
+						«expression.target.name».write().csv(CsvWriteOptions.builder(«generateArithmeticExpression(expression.expressions.get(0), scope)»).header(false).build());					
+					'''
 					}
 				}
 				case "channel":{
@@ -2438,14 +2556,14 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		// generate the aws lambda function
 		var async = call.isIsAsync
 		var cred = call.environment.name
-		var region = ((call.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+		var region = ((call.environment.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s
 		var function = call.target.name
 		var ret = ''''''
 		if (call.input.isIs_for_index) {
 			
 			//create the termination SQS queue 
 			ret+='''
-				«cred».createQueue("termination-«call.target.name»-"+__id_execution+"-«func_ID»");
+				«cred».createQueue("termination-«call.target.name»-"+__id_execution);
 				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
 			'''
 			
@@ -2770,7 +2888,8 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				}else if (typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Table")){
 				var name = (object as VariableLiteral).variable.name;
 				var index_name = (indexes.indices.get(0) as VariableDeclaration).name
-				typeSystem.get(scope).put(index_name,name); 
+				typeSystem.get(scope).put(index_name,name);
+				
 					return '''
 						for(int _«name»=0; _«name»< «name».rowCount();_«name»++){
 							«IF body instanceof BlockExpression»
@@ -2964,7 +3083,13 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		println (typeSystem.get(definition.name))
 		println(definition.name)
 		if (definition.body.expressions.filter(NativeExpression).length !=0)
-			return ''''''
+			s = '''
+			protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+			
+			return null;
+			
+			} 
+			'''
 		return s
 	}
 	
@@ -3230,8 +3355,17 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 						} else if (exp.feature.equals("nextInt")) {
 							return "Integer"
 						}
+					} else if (type.equals("query")){
+						var queryType = (exp.target.right as DeclarationObject).features.get(1).value_s
+						if (queryType.equals("update")){
+							return "int"
+						} else if(queryType.equals("value")){
+							return "String"
+						} else {
+							return "Table"
+						}
 					}
-				} else if (exp.feature.equals("split")) {
+				} else if (exp.feature.equals("split")) { /*PEPPE: nella vecchia usiamo l'hashmap */
 					return "String[]"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"

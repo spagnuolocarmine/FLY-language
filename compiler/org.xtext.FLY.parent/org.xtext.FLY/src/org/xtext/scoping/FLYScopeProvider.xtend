@@ -80,6 +80,10 @@ class FLYScopeProvider extends AbstractFLYScopeProvider {
 				elements.add(element)
 			}
 			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
+				typeof(VariableDeclaration)).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("sql")]) {
+				elements.add(element)
+			}
+			for (element : allElements.subList(0, allElements.indexOf(containingElement)).typeSelect(
 				typeof(ConstantDeclaration))) {
 				elements.add(element)
 			}

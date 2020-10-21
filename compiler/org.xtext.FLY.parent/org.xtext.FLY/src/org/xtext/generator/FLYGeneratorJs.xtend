@@ -46,9 +46,14 @@ import org.xtext.fLY.LocalFunctionCall
 import org.xtext.fLY.ArrayInit
 import org.xtext.fLY.ArrayValue
 import org.eclipse.emf.common.util.EList
-import org.eclipse.xtend.lib.macro.declaration.Declaration
 import java.util.HashSet
 import org.eclipse.emf.ecore.EObject
+import org.eclipse.xtend.lib.macro.declaration.Declaration
+import org.xtext.fLY.DeclarationFeature
+import java.util.ArrayList
+import java.util.Arrays
+import org.xtext.fLY.FunctionReturn
+
 
 class FLYGeneratorJs extends AbstractGenerator {
 	
@@ -59,6 +64,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 	int nthread = 0
 	int time = 0
 	FunctionDefinition root = null
+	HashMap<String, FunctionDefinition> functionCalled = null
 	Resource resourceInput
 	String env_name=""
 	var id_execution = null
@@ -66,6 +72,8 @@ class FLYGeneratorJs extends AbstractGenerator {
 	HashMap<String, HashMap<String, String>> typeSystem = null
 	boolean isLocal;
 	boolean isAsync;
+	var list_environment = new ArrayList<String>(Arrays.asList("smp","aws","aws-debug","azure"));
+	
 	
 	def generateJS(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context,String name_file, FunctionDefinition func, 
 		VariableDeclaration environment, HashMap<String, HashMap<String, String>> scoping, long id,boolean local,boolean async){
@@ -86,6 +94,13 @@ class FLYGeneratorJs extends AbstractGenerator {
 			this.env="smp"
 			this.nthread = (environment.right as DeclarationObject).features.get(1).value_t
 			this.language = (environment.right as DeclarationObject).features.get(2).value_s
+		}
+		functionCalled = new HashMap<String, FunctionDefinition>();
+		for (element : input.allContents.toIterable.filter(FunctionDefinition)
+			.filter[it.name != root.name]
+			.filter[it.body.expressions.toList.filter(NativeExpression).length>0]) {
+
+			functionCalled.put(element.name,element)
 		}
 		this.isAsync = async
 		this.isLocal = local 
@@ -134,12 +149,14 @@ class FLYGeneratorJs extends AbstractGenerator {
 	
 	override doGenerate(Resource input, IFileSystemAccess2 fsa, IGeneratorContext context) {
 		//fsa.generateFile(name + ".js", input.compileJS(root, env));
-		println("JS GENERATOR" + typeSystem.get(root.name))
-		fsa.generateFile(root.name +"_"+ env_name +"_deploy.sh",input.compileScriptDeploy(root.name,false));
-		fsa.generateFile(root.name +"_"+ env_name +"_undeploy.sh",input.compileScriptUndeploy(root.name,false));
-		if (this.isLocal) {
-			fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
-		} 
+	if (this.isLocal) {
+		fsa.generateFile(root.name + ".js", input.compileJavaScript(root.name, true))	
+	}else {
+		if(env.equals("aws-debug"))
+				fsa.generateFile("docker-compose-script.sh",input.compileDockerCompose())
+			fsa.generateFile(root.name +"_"+ env_name +"_deploy.sh", input.compileScriptDeploy(root.name, false))
+			fsa.generateFile(root.name +"_"+ env_name + "_undeploy.sh", input.compileScriptUndeploy(root.name, false))
+		}
 	}
 	
 	def CharSequence compileJavaScript(Resource resource, String string, boolean local)
@@ -160,8 +177,9 @@ class FLYGeneratorJs extends AbstractGenerator {
 		«generateBodyJs(resource,func.body,func.parameters,func.name,env)»
 	'''
 
+	/*PEPPE: metodo totalmente cambiato 
 	def generateBodyJs(Resource resource,BlockExpression exps,List<Expression> parameters, String name, String env) {
-		'''
+		'''		
 			«IF env == "aws"»
 				var AWS = require(\"aws-sdk\");
 				var sqs = new AWS.SQS();
@@ -242,9 +260,116 @@ class FLYGeneratorJs extends AbstractGenerator {
 				«ENDIF»
 				
 				context.res = {
-					status: 200, /* Defaults to 200 */
+					status: 200, 
 					body: \"Ok!\"
 				};
+			}
+		'''
+	} */
+	
+	def generateBodyJs(Resource resource,BlockExpression exps,List<Expression> parameters, String name, String env) {
+		
+		'''
+			«IF env.contains("aws")»
+			var __AWS = require("aws-sdk");
+			
+				«IF env.equals("aws")»
+			var __sqs = new __AWS.SQS();
+			var __rds = new __AWS.RDS();
+			
+				«ELSE»
+			__AWS.config.update({region: "us-east-1"});
+			var __sqs = new __AWS.SQS({endpoint: "http://192.168.0.1:4576"});
+				«ENDIF»
+			let __params;
+			let __data;
+			«ENDIF»
+			
+			«IF env.equals("azure")»
+			var __azure = require("azure-storage");
+			var __queueSvc = __azure.createQueueService("'${storageName}'", "'${storageKey}'");
+			var __axios = require("axios");
+			var __qs = require("qs");
+			«ENDIF»
+			var __util = require("util");
+			var __dataframe = require("dataframe-js").DataFrame;
+			var __mysql = require("mysql");
+			«FOR req: exps.expressions.filter(RequireExpression)»
+			
+			«ENDFOR»
+			
+			
+			«FOR exp : resource.allContents.toIterable.filter(ConstantDeclaration)»
+				«generateConstantDefinition(exp,name)»
+			«ENDFOR»
+			
+			«IF env.contains("aws")»
+			exports.handler = async (event,context) => {
+			«ELSEIF env == "azure"»
+				module.exports = async function (context, req) {
+					let __scope = "https://management.azure.com/.default";
+									
+					let __urlToken ="https://login.microsoftonline.com/" + "'${tenant}'" + "/oauth2/v2.0/token";
+					
+					const __postData = {
+					  grant_type: "client_credentials",
+					  client_id: "'${user}'",
+					  client_secret: "'${secret}'",
+					  scope: __scope
+					};
+					
+					__axios.defaults.headers.post["Content-Type"] = "application/x-www-form-urlencoded";
+					
+					var __reqToken = await __axios.post(__urlToken, __qs.stringify(__postData));
+					    
+					var __token = __reqToken.data.access_token;
+			«ENDIF»
+			
+				
+				«FOR exp : parameters»
+					«IF env.contains("aws")»
+						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+							var __data_«(exp as VariableDeclaration).name» = await new __dataframe(event.data);
+							var «(exp as VariableDeclaration).name» = __data_«(exp as VariableDeclaration).name».toArray();
+						«ELSE»
+							var «(exp as VariableDeclaration).name» = event.data;
+						«ENDIF»
+					«ELSEIF env.contains("azure")»
+						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
+							var __«(exp as VariableDeclaration).name» = await new __dataframe((req.query.data || (req.body && req.body.data)));
+							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
+						«ELSE»
+							var «(exp as VariableDeclaration).name» = (req.query.data || (req.body && req.body.data));
+						«ENDIF»
+					«ENDIF»
+				«ENDFOR»
+				«FOR exp : exps.expressions»
+					«generateJsExpression(exp,name)»
+				«ENDFOR»
+				«FOR exp : exps.expressions»
+					«IF (exp instanceof VariableDeclaration)»
+						«IF ((exp as VariableDeclaration).right instanceof DeclarationObject)»
+							«IF (((exp as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("sql"))»
+								await «(exp as VariableDeclaration).name».end(function(err){});
+							«ENDIF»
+						«ENDIF»
+					«ENDIF»
+				«ENDFOR»
+				«IF !this.isAsync»
+					«IF env.contains("aws")»
+						__data = await __sqs.getQueueUrl({ QueueName: "termination-'${function}'-'${id}'"}).promise();
+									
+						__params = {
+							MessageBody : JSON.stringify("terminate"),
+							QueueUrl : __data.QueueUrl
+						};
+									
+						__data = await __sqs.sendMessage(__params).promise();
+					«ELSEIF env == "azure"»
+						await (__util.promisify(__queueSvc.createMessage).bind(__queueSvc))("termination-'${function}'-'${id}'", "terminate");
+					«ENDIF»
+					
+				«ENDIF»
 			}
 		'''
 	}
@@ -367,23 +492,20 @@ class FLYGeneratorJs extends AbstractGenerator {
 	def generateJsExpression(Expression exp, String scope) {
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
-			if(env == "aws" || env == "aws-debug" ){
-				s += '''	
-						__data = await sqs.getQueueUrl({ QueueName: \"«exp.target.name»_"${id}"\"}).promise();
-						
-						__params = {
-							MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»),
-							QueueUrl : __data.QueueUrl
-						}
-						
-						__data = await sqs.sendMessage(__params).promise();
-					'''
-			} else if(env == "azure"){
-				s+='''
-					__data = await «exp.target.name».sendMessage(JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»))
-				'''
-			}
-			
+			s += '''
+			«IF env.contains("aws")»
+				__data = await __sqs.getQueueUrl({ QueueName: "«exp.target.name»-'${id}'"}).promise();
+				
+				__params = {
+					MessageBody : JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»),
+					QueueUrl : __data.QueueUrl
+				};
+				
+				__data = await __sqs.sendMessage(__params).promise();
+			«ELSEIF env == "azure"»
+				await (__util.promisify(__queueSvc.createMessage).bind(__queueSvc))("«exp.target.name»-'${id}'", JSON.stringify(«generateJsArithmeticExpression(exp.expression,scope)»));
+			«ENDIF»
+			'''
 		} else if (exp instanceof VariableDeclaration) {
 			if (exp.typeobject.equals("var")) {
 				if (exp.right instanceof NameObjectDef) {
@@ -492,16 +614,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 					}	
 				} else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
-					switch (type) {
-						case "dataframe": {
-							typeSystem.get(scope).put(exp.name, "Table")
-							var path = (exp.right as DeclarationObject).features.get(1).value_s
-							s += '''
-								var __«exp.name» = await __dataframe.fromCSV(«IF (exp as VariableDeclaration).onCloud && !(path.contains("https://")) » \"https://s3.us-east-2.amazonaws.com/bucket-"${id}""/«path»\" «ELSE»«path»«ENDIF»)
-								var «exp.name» = __«exp.name».toArray()
-							'''
-						}
-
+					switch (type) {						
 						case "file":{
 							typeSystem.get(scope).put(exp.name, "File")
 							var path = "";
@@ -517,27 +630,129 @@ class FLYGeneratorJs extends AbstractGenerator {
 								'''
 							}
 							
+						}case "dataframe": {
+							typeSystem.get(scope).put(exp.name, "Table")
+							var url = "";
+							var path = (exp.right as DeclarationObject).features.get(1).value_s
+							
+							if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws") && ! (path.contains("https://")))
+								url = "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/" + path
+							else if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure") && ! (path.contains("https://")))
+								url = "https://'${storageName}'.blob.core.windows.net/bucket-'${id}'/" + path
+							else
+								url = path
+
+							s += '''
+								var __«exp.name» = await __dataframe.fromCSV("«url»")
+								var «exp.name» = __«exp.name».toArray()
+							'''
 						}
-						
-						
+						case "sql":{
+							if (exp.onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws")){
+								var instance = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var db_name = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+								return '''
+									var __params_«exp.name» = {
+									  DBInstanceIdentifier: "«instance»"
+									};
+									
+									const __getEndpoint_«exp.name» = __util.promisify(__rds.describeDBInstances).bind(__rds);
+									
+									var __instances_«exp.name» = await __getEndpoint_«exp.name»(__params_«exp.name»);
+									
+									var __endpoint_«exp.name» = __instances_«exp.name».DBInstances[0].Endpoint.Address;
+									
+									var «exp.name» = __mysql.createConnection({
+									  	host: __endpoint_«exp.name»,
+									  	user: "«user_name»",
+									  	password: "«password»",
+									  	database: "«db_name»"
+									});
+									
+									'''	 					
+							} else if (exp.onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure")){
+								var resource_group = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var instance = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var db_name = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s 
+								return 
+								'''
+									var __url«exp.name» = "https://management.azure.com/subscriptions/" + "'${subscription}'" 
+									+ "/resourceGroups/" + "«resource_group»"
+									+ "/providers/Microsoft.DBforMySQL/servers/" + "«instance»"
+									+ "?api-version=2017-12-01"
+									
+									const config = {
+										method: "get",
+										headers: {
+										Authorization: "Bearer " + __token,
+										Accept: "application/json"
+										}
+									}
+									
+									var __res«exp.name» = await __axios.get(__url«exp.name», config);
+
+									var __endpoint«exp.name» = __res«exp.name».data.properties.fullyQualifiedDomainName;
+
+									var «exp.name» = __mysql.createConnection({
+										host: __endpoint«exp.name»,
+										user: "«user_name»",
+										password: "«password»",
+										database: "«db_name»",
+										port: 3306,
+										ssl:true
+									});
+								'''	 					
+							} else {
+								var db_name = ((exp.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s
+								var user_name = ((exp.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s
+								var password = ((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s
+								var endpoint = ""
+								if (((exp.right as DeclarationObject).features.size) > 4)
+									endpoint = (exp.right as DeclarationObject).features.get(4).value_s
+								else endpoint = "localhost"
+								return '''
+								var «exp.name» = __mysql.createConnection({
+								  	host: "«endpoint»",
+								  	user: "«user_name»",
+								  	password: "«password»",
+								  	database: "«db_name»"
+								});
+								'''	 
+							}
+						}
+						case "query":{
+						return '''
+						var «exp.name» =
+						«IF 
+							((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s.nullOrEmpty
+						»
+						«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
+						« ELSE » 
+						"«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»"
+						«ENDIF»
+						;
+						'''	 
+						}
 						default: {
 							
 						}
 					}
 					
 				} else if(exp.right instanceof VariableFunction){
-					typeSystem.get(scope).put(exp.name,valuateArithmeticExpression(exp.right as VariableFunction,scope))
 					s += '''
-						var «exp.name» = «generateJsVariableFunction((exp.right as VariableFunction), true, scope)»;
+						var «exp.name» = «generateJsVariableFunction((exp.right as VariableFunction), true, scope)»
 					'''
-				}else {
-					typeSystem.get(scope).put(exp.name,valuateArithmeticExpression(exp.right as ArithmeticExpression,scope))
+				} else {
 					s += '''
-						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression,scope)»;
+						var «exp.name» = «generateJsArithmeticExpression(exp.right as ArithmeticExpression,scope)»
 					'''
 				}
 
-			} 
+			}
 		} else if (exp instanceof IfExpression) {
 			s += '''
 				if(«generateJsArithmeticExpression(exp.cond,scope)»)
@@ -575,11 +790,28 @@ class FLYGeneratorJs extends AbstractGenerator {
 			s+='''
 				«generateJsArithmeticExpression(exp.variable,scope)»«exp.feature»
 			'''
-		}else if(exp instanceof VariableFunction){
+		} else if(exp instanceof VariableFunction){
 			s+='''
 				«generateJsVariableFunction(exp, true, scope)»
 			'''
-		} else if(exp instanceof LocalFunctionCall){
+		} else if(exp instanceof FunctionDefinition){
+			
+			val fd = (exp as FunctionDefinition)
+			val name = fd.name
+			val params = fd.parameters.map[it as VariableDeclaration].map[it.name]
+			val body = fd.body as BlockExpression
+			
+			s += '''
+				«name» = async («String.join(", ", params)») =>
+					«generateJsBlockExpression(body, scope)»
+				
+			'''
+			
+		}else if (exp instanceof FunctionReturn) {
+			val fr = (exp as FunctionReturn)
+			s += '''return «generateJsArithmeticExpression(fr.expression, scope)»'''
+		}
+		else if(exp instanceof LocalFunctionCall){
 			s += exp.target.name + "("
 			if (exp.input != null) {
 				for (input : exp.input.inputs) {
@@ -618,22 +850,34 @@ class FLYGeneratorJs extends AbstractGenerator {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment
 						return '''
-							__data = await sqs.getQueueUrl({ QueueName: \"«((assignment.value as CastExpression).target as ChannelReceive).target.name»_"${id}"}\").promise();
-							__data = await sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
+							__data = await __sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»-'${id}'}").promise();
+							__data = await __sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
 							«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __data.Messages[0].Body
 						'''
-				} else { // other environment
-
+				} else if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
+					right as DeclarationObject).features.get(0).value_s.equals("azure"))  { // azure environment
+						return '''
+							var __msg = await (__util.promisify(__queueSvc.getMessages).bind(__queueSvc))("«((assignment.value as CastExpression).target as ChannelReceive).target.name»-'${id}'}");
+							«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __msg[0].messageText;
+						'''
+				} else { // other environment 
+					
 				}
 
 			} else if (assignment.value instanceof ChannelReceive) {
 				if (((assignment.value as ChannelReceive).target.environment.get(0).right as DeclarationObject).features.
 					get(0).value_s.equals("aws")) { // aws environment
 					return '''
-					__data = await sqs.getQueueUrl({ QueueName: \"«((assignment.value as CastExpression).target as ChannelReceive).target.name»_"${id}"\"}).promise();
-					__data = await sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
+					__data = await __sqs.getQueueUrl({ QueueName: "«((assignment.value as CastExpression).target as ChannelReceive).target.name»-'${id}'"}).promise();
+					__data = await __sqs.sendMessage({QueueUrl : __data.QueueUrl }).promise();
 					«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __data.Messages[0].Body
 					'''
+				} else if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
+					right as DeclarationObject).features.get(0).value_s.equals("azure"))  { // azure environment
+						return '''
+							var __msg = await (__util.promisify(__queueSvc.getMessages).bind(__queueSvc))("«((assignment.value as CastExpression).target as ChannelReceive).target.name»-'${id}'}");
+							«generateJsArithmeticExpression(assignment.feature,scope)» «assignment.op» __msg[0].messageText;
+						'''
 				} else { // other environment
 					return '''
 						
@@ -854,25 +1098,29 @@ class FLYGeneratorJs extends AbstractGenerator {
 			return '''«exp.value»'''
 		}
 		if (exp instanceof StringLiteral) {
-			return '''\"«exp.value»\"'''
+			return '''"«exp.value»"'''
 		} else if (exp instanceof VariableLiteral) {
 			return '''«exp.variable.name»'''
 		} else if (exp instanceof VariableFunction) {
-			if ((exp.target.right instanceof DeclarationObject)&& (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
-				return ''' Math.random()'''
-			}else if (exp.feature.equals("length")){ 
-				return '''«exp.target.name».length'''
-			}else if(exp.feature.equals("containsKey")){
+			if ((exp.target.right instanceof DeclarationObject)  && (exp.target.right as DeclarationObject).features.get(0).value_s.equals("random")) {
+				return '''Math.random()'''
+			} else if(exp.feature.equals("containsKey")){
 				return '''«generateJsArithmeticExpression(exp.expressions.get(0),scope)» in «exp.target.name»'''
-			}else{
-				var s = exp.target.name + "." + exp.feature + "("
-			for (e : exp.expressions) {
-				s += generateJsArithmeticExpression(e, scope)
-				if (e != exp.expressions.last()) {
-					s += ","
+			} else {
+				var s = ""
+				if(exp.feature.equals("length")){
+					s = exp.target.name + "." + exp.feature
+				} else {
+					s = exp.target.name + "." + exp.feature + "("
+					for (e : exp.expressions) {
+						s += generateJsArithmeticExpression(e, scope)
+						if (e != exp.expressions.last()) {
+							s += ","
+						}
+					}
+					s += ")"
 				}
-			}
-			s += ")"
+				
 			return s
 			}
 			
@@ -901,6 +1149,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 			return '''Math.«exp.feature»(«FOR par: exp.expressions» «generateJsArithmeticExpression(par,scope)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
 		}else if(exp instanceof LocalFunctionCall){
 			var s=''''''
+			s += "await"
 			s += exp.target.name + "("
 			if (exp.input != null) {
 				for (input : exp.input.inputs) {
@@ -917,22 +1166,6 @@ class FLYGeneratorJs extends AbstractGenerator {
 		}
 	}
 
-		def generateJsVariableFunction(VariableFunction expression, Boolean t, String scope) {
-				var s = expression.target.name + "." + expression.feature + "("
-			for (exp : expression.expressions) {
-				s += generateJsArithmeticExpression(exp, scope)
-				if (exp != expression.expressions.last()) {
-					s += ","
-				}
-			}
-			s += ")"
-			if (t) {
-				s += ";"
-			}
-			return s
-		}
-
-	
 	def String valuateArithmeticExpression(ArithmeticExpression exp, String scope) {
 		if (exp instanceof NumberLiteral) {
 			return "Integer"
@@ -1043,26 +1276,74 @@ class FLYGeneratorJs extends AbstractGenerator {
 				} else if (exp.feature.equals("nextInt")) {
 					return "Integer"
 				}
+			} else if (exp.target.typeobject.equals("query")){
+				var queryType = (exp.target.right as DeclarationObject).features.get(1).value_s
+				if (queryType.equals("query")){
+					return "Table"
+				} else {
+					return "int"
+				}	
 			}
 		} else {
 			return "Object"
 		}
 	}
 	
-		def CharSequence compileScriptDeploy(Resource resource, String name, boolean local){
-		switch this.env {
-		   case "aws": AWSDeploy(resource,name,false)
-		   case "aws-debug": AWSDeploy(resource,name,true)
-		   case "azure": AzureDeploy(resource,name)
-		   default: this.env+" not supported"
-  		}
+	def generateJsVariableFunction(VariableFunction expression, Boolean t, String scope) {
+		if (expression.target.right instanceof DeclarationObject) {
+			var type = (expression.target.right as DeclarationObject).features.get(0).value_s
+			
+			switch (type){
+				case "query":{
+					var queryType = (expression.target.right as DeclarationObject).features.get(1).value_s
+					if(expression.feature.equals("execute")){
+						var connection = (expression.target.right as DeclarationObject).features.get(2).value_f.name
+						if (queryType.equals("value")){
+							return '''
+							JSON.stringify(
+								await (__util.promisify(«connection».query).bind(«connection»))(
+							«IF(expression.target.right as DeclarationObject).features.get(3).value_s.nullOrEmpty»
+								«(expression.target.right as DeclarationObject).features.get(3).value_f.name»
+							«ELSE» 
+								"«(expression.target.right as DeclarationObject).features.get(3).value_s»"
+							«ENDIF»
+								)
+							).match(/[+-]?\d+(?:\.\d+)?/g);
+						''' 
+						}else{
+							return '''
+							await (__util.promisify(«connection».query).bind(«connection»))(
+							«IF(expression.target.right as DeclarationObject).features.get(3).value_s.nullOrEmpty»
+								«(expression.target.right as DeclarationObject).features.get(3).value_f.name»
+							«ELSE» 
+								"«(expression.target.right as DeclarationObject).features.get(3).value_s»"
+							«ENDIF»
+							);
+						''' 
+						}
+					}
+				} 				
+				default :{
+					return generateJsArithmeticExpression(expression, scope)
+				}
+			} 
+		}else{
+			return generateJsArithmeticExpression(expression, scope)
+		}
 	}
 	
-
+	def CharSequence compileScriptDeploy(Resource resource, String name, boolean local){
+		switch this.env {
+		   case "aws": AWSDeploy(resource,name,local,false)
+		   case "aws-debug": AWSDebugDeploy(resource,name,local,true)
+		   case "azure": AzureDeploy(resource,name,local)
+		   default: this.env+" not supported"
+  		}
+	} 
 	
-	
-	def CharSequence AWSDeploy(Resource resource, String name, Boolean debug)'''
-	#!/bin/bash
+	def CharSequence AWSDeploy(Resource resource, String name, boolean local, boolean debug)
+	'''
+		#!/bin/bash
 		
 		if [ $# -eq 0 ]
 		  then
@@ -1082,6 +1363,288 @@ class FLYGeneratorJs extends AbstractGenerator {
 		      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
 		      exit 1
 		fi
+		
+		echo '{
+				"Version": "2012-10-17",
+				"Statement": [
+					{
+						"Effect": "Allow",
+						"Action": [
+							"sqs:DeleteMessage",
+							"sqs:GetQueueAttributes",
+							"sqs:ReceiveMessage",
+							"sqs:SendMessage",
+							"sqs:*"
+						],
+						"Resource": "*" 
+					},
+					{
+					"Effect": "Allow",
+					"Action": [
+						"s3:*"
+					],
+					"Resource": "*" 
+										},
+					{
+						"Effect":"Allow",
+						"Action": [
+							"logs:CreateLogGroup",
+							"logs:CreateLogStream",
+							"logs:PutLogEvents"
+						],
+						"Resource": "*"
+					},
+					{
+					    "Effect": "Allow",
+					    "Action": "rds:*",
+					    "Resource": "*"
+					},
+					{
+					    "Effect": "Allow",
+					    "Action": ["rds:Describe*"],
+					    "Resource": "*"
+					}
+				]
+			}' > policyDocument.json
+		
+		echo '{
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": "lambda.amazonaws.com"
+							},
+							"Action": "sts:AssumeRole" 
+						}
+					]
+				}' > rolePolicyDocument.json
+		
+		#create role policy
+		
+		echo "creation of role lambda-sqs-execution ..."
+		
+		role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+		
+		if [ $? -eq 255 ]; then 
+			role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+		fi
+		
+		echo "role lambda-sqs-execution created at ARN "$role_arn
+		
+		aws iam --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+		
+		mkdir ${function}_lambda
+				
+		cd ${function}_lambda
+		
+		echo '«generateBodyJs(resource,root.body,root.parameters,name,env)»
+				«FOR fd:functionCalled.values()»
+					
+				«generateJsExpression(fd, name)»
+				
+				«ENDFOR»
+		' > ${function}.js
+		
+		echo "npm init..."
+		npm init -y
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm init failed"
+		    exit 1
+		fi
+		
+		echo " npm install aws-sdk "
+		npm install aws-sdk
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install aws-sdk failed"
+		    exit 1
+		fi
+		
+		echo "npm install async"
+		npm install async
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install async failed"
+		    exit 1
+		fi
+		
+		echo "npm install dataframe-js"
+		npm install dataframe-js
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install dataframe-js failed"
+		    exit 1
+		fi
+		
+		echo "npm install util"
+		npm install util
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install util failed"
+		    exit 1
+		fi
+		
+		echo "npm install mysql"
+		npm install mysql
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install mysql failed"
+		    exit 1
+		fi
+		
+		echo "npm install axios"
+		npm install axios
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+			echo "npm install axios failed"
+			exit 1
+		fi
+		
+		echo "npm install qs"
+		npm install qs
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install qs failed"
+		    exit 1
+		fi
+		
+	«FOR req : resource.allContents.toIterable.filter(RequireExpression).filter[(environment.right as DeclarationObject).features.get(4).value_s.equals(language)]»
+		echo "npm install «req.lib»"
+		npm install «req.lib»"
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install «req.lib» failed"
+		    exit 1
+		fi
+	«ENDFOR»
+				
+		echo ""
+		echo "creating .zip file"
+		
+		zip -r -q -9 ../${function}_lambda.zip . 
+		
+		cd .. 
+			
+		#create the lambda function
+		echo "creation of the lambda function"
+		
+		if [ $(wc -c < ${function}_lambda.zip) -lt 50000000 ]; then
+			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+			
+			while [ $? -ne 0 ]; do
+				aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+			done
+		else
+			echo "zip file too big, uploading it using s3"
+			echo "creating bucket for s3"
+			aws s3 --profile ${user} mb s3://${function,,}${id}bucket
+			echo "s3 bucket created. uploading file"
+			aws s3 --profile ${user} cp ${function}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+			echo "file uploaded, creating function"		
+			
+			echo "creation of the lambda function"
+			aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${function}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»			
+		fi
+		
+		echo "lambda function created"
+		
+		# clear 
+		rm -r ${function}_lambda/
+		rm ${function}_lambda.zip
+		rm rolePolicyDocument.json
+		rm policyDocument.json
+	
+	'''
+	
+	def CharSequence AWSUndeploy(Resource resource, String name)'''
+		#!/bin/bash
+			
+		if [ $# -eq 0 ]
+		  then
+		    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+		    exit 1
+		fi
+		
+		user=$1
+		function=$2
+		id=$3
+		
+		# delete termination queue
+		
+		echo "get termination-${function}-${id} queue-url"
+		termination_queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name termination-${function}-${id} --query 'QueueUrl')
+		echo ${termination_queue_url//\"}
+		
+		echo "delete queue at url ${termination_queue_url//\"} "
+		aws sqs --profile ${user} delete-queue --queue-url ${termination_queue_url//\"}
+		
+		# delete user queue
+		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(it.right as DeclarationObject).features.get(0).value_s.equals("channel")]
+		.filter[((it.environment.get(0) as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")] »
+			#get «res.name»_${id} queue-url
+			
+			echo "get «res.name»-${id} queue-url"
+			queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»-${id} --query 'QueueUrl')
+			echo ${queue_url//\"}
+			
+			echo "delete queue at url ${queue_url//\"} "
+			aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
+			
+		«ENDFOR»
+
+		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall).filter[((it.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s.equals("aws")]»
+			#delete lambda function: «res.target.name»_${id}
+			echo "delete lambda function: «res.target.name»_${id}"
+			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
+			
+		«ENDFOR»
+	'''
+	
+	def CharSequence AWSDebugDeploy(Resource resource, String name, boolean local, boolean debug)
+		'''
+		#!/bin/bash
+		
+		if [ $# -eq 0 ]
+		  then
+		    echo "No arguments supplied. ./aws-debug_deploy.sh <user_profile> <function_name> <id_function_execution>"
+		    exit 1
+		fi
+		
+		echo "Checking that aws-cli is installed"
+		which aws
+		if [ $? -eq 0 ]; then
+		      echo "aws-cli is installed, continuing..."
+		else
+		      echo "You need aws-cli to deploy this lambda. Google 'aws-cli install'"
+		      exit 1
+		fi
+		
+		aws configure list --profile dummy_fly_debug
+		if [ $? -eq 0 ]; then
+			echo "dummy user found, continuing..."
+		else
+		     echo "creating dummy user..."
+		     aws configure set aws_access_key_id dummy --profile dummy_fly_debug
+		     aws configure set aws_secret_access_key dummy --profile dummy_fly_debug
+		     aws configure set region us-east-1 --profile dummy_fly_debug
+		     aws configure set output json --profile dummy_fly_debug
+		     echo "dummy user created"
+		fi
+		
+		user=$1
+		function=$2
+		id=$3
 		
 		echo '{
 				"Version": "2012-10-17",
@@ -1133,21 +1696,30 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		echo "creation of role lambda-sqs-execution ..."
 		
-		role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
+		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 		
 		if [ $? -eq 255 ]; then 
-			role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
+			role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 		fi
 		
 		echo "role lambda-sqs-execution created at ARN "$role_arn
 		
-		aws iam --profile ${user} put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+		aws iam --endpoint-url=http://localhost:4593 --profile dummy_fly_debug put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
+		
+		echo "Installing requirements"
 		
 		mkdir ${function}_lambda
 				
 		cd ${function}_lambda
 		
-		echo '«generateBodyJs(resource,root.body,root.parameters,name,env)»' > ${function}.js
+		
+		echo '«generateBodyJs(resource,root.body,root.parameters,name,env)»
+		«FOR fd:functionCalled.values()»
+			
+		«generateJsExpression(fd, name)»
+		
+		«ENDFOR»
+		' > ${function}.js
 		
 		echo "npm init..."
 		npm init -y
@@ -1158,7 +1730,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		    exit 1
 		fi
 		
-		echo " npm instal aws-sdk "
+		echo "npm instal aws-sdk "
 		npm install aws-sdk
 		if [ $? -eq 0 ]; then
 		    echo "..."
@@ -1185,17 +1757,53 @@ class FLYGeneratorJs extends AbstractGenerator {
 		    exit 1
 		fi
 		
-	«FOR req : resource.allContents.toIterable.filter(RequireExpression).filter[(environment.right as DeclarationObject).features.get(4).value_s.equals(language)]»
-		echo "npm install «req.lib»"
-		npm install «req.lib»"
+		echo "npm install util"
+		npm install util
+		if [ $? -eq 0 ]; then
+			echo "..."
+		else
+			echo "npm install util failed"
+			exit 1
+		fi
+		
+		echo "npm install mysql"
+		npm install mysql
 		if [ $? -eq 0 ]; then
 		    echo "..."
 		else
-		    echo "npm install «req.lib» failed"
+		    echo "npm install mysql failed"
 		    exit 1
 		fi
-	«ENDFOR»
-				
+		
+		echo "npm install axios"
+		npm install axios
+		if [ $? -eq 0 ]; then
+		    echo "..."
+		else
+		    echo "npm install axios failed"
+		    exit 1
+		fi
+		
+		echo "npm install qs"
+		npm install qs
+		if [ $? -eq 0 ]; then
+			echo "..."
+		else
+			echo "npm install qs failed"
+			exit 1
+		fi
+		
+		«FOR req : resource.allContents.toIterable.filter(RequireExpression).filter[(environment.right as DeclarationObject).features.get(4).value_s.equals(language)]»
+			echo "npm install «req.lib»"
+			npm install «req.lib»"
+			if [ $? -eq 0 ]; then
+			    echo "..."
+			else
+			    echo "npm install «req.lib» failed"
+			    exit 1
+			fi
+		«ENDFOR»
+		
 		echo ""
 		echo "creating .zip file"
 		
@@ -1205,10 +1813,10 @@ class FLYGeneratorJs extends AbstractGenerator {
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+		aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
 		
 		while [ $? -ne 0 ]; do
-			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
+			aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
 		done
 		
 		echo "lambda function created"
@@ -1218,148 +1826,223 @@ class FLYGeneratorJs extends AbstractGenerator {
 		rm ${function}_lambda.zip
 		rm rolePolicyDocument.json
 		rm policyDocument.json
-	
+		'''
+
+	def CharSequence compileDockerCompose(Resource resource)
+	'''
+		docker network create -d bridge --subnet 192.168.0.0/24 --gateway 192.168.0.1 flynet
+		echo "
+		version: '2.1'
+		
+		services:
+		 localstack:
+		   image: localstack/localstack:0.10.6
+		   ports:
+		     - '4567-4593:4567-4593'
+		     - '\${PORT_WEB_UI-8080}:\${PORT_WEB_UI-8080}'
+		   environment:
+		     - SERVICES=\${SERVICES- s3, sqs, lambda, iam, cloud watch, cloud watch logs}
+		     - DEBUG=\${DEBUG- 1}
+		     - DATA_DIR=\${DATA_DIR- }
+		     - PORT_WEB_UI=\${PORT_WEB_UI- }
+		     - LAMBDA_EXECUTOR=\${LAMBDA_EXECUTOR- docker}
+		     - KINESIS_ERROR_PROBABILITY=\${KINESIS_ERROR_PROBABILITY- }
+		     - DOCKER_HOST=unix:///var/run/docker.sock
+		     - HOSTNAME=192.168.0.1
+		     - HOSTNAME_EXTERNAL=192.168.0.1
+		     - LOCALSTACK_HOSTNAME=192.168.0.1
+		   volumes:
+		     - '\${TMPDIR:-/tmp/localstack}:/tmp/localstack'
+		     - '/var/run/docker.sock:/var/run/docker.sock' "> docker-compose.yml
+		     
+		docker-compose up
 	'''
 	
-	def CharSequence UndeployAWS(Resource resource, String name)'''
+	def CharSequence AWSDebugUndeploy(Resource resource, String string)
+	'''
+	#!/bin/bash
+	
+	docker-compose down				
+	docker network rm flynet				
+	'''
+	
+	def CharSequence AzureDeploy(Resource resource, String name, boolean local)
+	'''
 		#!/bin/bash
-			
-		if [ $# -eq 0 ]
+		
+					
+		if [ $# -ne 9 ]
 		  then
-		    echo "No arguments supplied. ./aws_deploy.sh <user_profile> <function_name> <id_function_execution>"
+		    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId>  <storageName> <storageKey>"
 		    exit 1
 		fi
 		
-		user=$1
-		function=$2
+		app=$1
+		function=$(echo "$2" | awk '{print tolower($0)}')
 		id=$3
+		user=$4
+		tenant=$5
+		secret=$6
+		subscription=$7
+		storageName=$8
+		storageKey=$9
 		
-		# delete user queue
-		«FOR res: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
-			«IF (res.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("aws")»
-				#get «res.name»_${id} queue-url
-				
-				echo "get «res.name»_${id} queue-url"
-				queue_url=$(aws sqs --profile ${user} get-queue-url --queue-name «res.name»_${id} --query 'QueueUrl')
-				echo ${queue_url//\"}
-				
-				echo "delete queue at url ${queue_url//\"} "
-				aws sqs --profile ${user} delete-queue --queue-url ${queue_url//\"}
-			«ENDIF»
-		«ENDFOR»
-
-		«FOR  res: resource.allContents.toIterable.filter(FlyFunctionCall)»
-			«IF (res.environment.right as DeclarationObject).features.get(0).value_s.equals("aws")»
-				#delete «res.target.name»_${id} lambda function
-				echo "delete «res.target.name»_${id} lambda function"
-				aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
-			«ENDIF»
-		«ENDFOR»
-	'''
-	
-	def CharSequence AzureDeploy(Resource resource, String scope) '''
-	#!/bin/bash
-				
-	if [ $# -ne 9 ]
-	  then
-	    echo "No arguments supplied. ./azure_deploy.sh <app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId>  <storageName> <storageKey>"
-	    exit 1
-	fi
-	
-	app=$1
-	function=$2
-	id=$3
-	user=$4
-	tenant=$5
-	secret=$6
-	subscription=$7
-	storageName=$8
-	storageKey=$9
-	
-	#Check if Azure Functions Core Tools is installed
-	if !(command -v az &>/dev/null) then
-		echo "Script require Azure Functions Core Tools"
-		exit 1;
-	fi
-	
-	az login --service-principal -u ${user} -t ${tenant} -p ${secret}
-	
-	#create the project folder
-	func init ${app}${id} --worker-runtime node --language javascript
-	
-	#echo 'func init completed'
-	
-	cd ${app}${id}
-	
-	echo "npm install @azure/storage-queue"
-	npm install @azure/storage-queue
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "npm install @azure/storage-queue failed"
-	    exit 1
-	fi
-	
-	echo "npm install @azure/storage-blob"
-	npm install @azure/storage-blob
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "npm install @azure/storage-blob failed"
-	    exit 1
-	fi
-		
-	echo "npm install dataframe-js"
-	npm install dataframe-js
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "npm install dataframe-js failed"
-	    exit 1
-	fi
-	
-	«FOR req : resource.allContents.toIterable.filter(RequireExpression).filter[(environment.right as DeclarationObject).features.get(4).value_s.equals(language)]»
-	echo "npm install «req.lib»"
-	npm install «req.lib»"
-	if [ $? -eq 0 ]; then
-	    echo "..."
-	else
-	    echo "npm install «req.lib» failed"
-		    exit 1
+		echo "Checking that azure-cli is installed"
+		which az
+		if [ $? -eq 0 ]; then
+		      echo "azure-cli is installed, continuing..."
+		else
+		      echo "You need azure-cli to deploy this function. Google 'azure-cli install'"
+		      exit 1
 		fi
-	«ENDFOR»
 
-	#generete the folder for the function with the default file
-	func new --name ${function} --template "HttpTrigger"
-	
-	cd ${function}
-	
-	#rm index.js
-	
-	echo "«generateBodyJs(resource,root.body,root.parameters,root.name,env)»" > index.js
-	
-	cd ..
-	
-	az functionapp create --resource-group flyrg${id} --consumption-plan-location westeurope --name ${app}${id} --storage-account  flysa${id} --runtime node
+		echo "Checking that Azure Function Core Tools is installed"
+		which func
+		if [ $? -eq 0 ]; then
+		      echo "Azure Function Core Tools is installed, continuing..."
+		else
+		      echo "You need Azure Function Core Tools to deploy this function. Google 'Azure Function Core Tools install'"
+		      exit 1
+		fi		
 		
-	until func azure functionapp publish ${app}${id}
-			do
-			    echo "Deploy attempt"
-			done
+		az login --service-principal -u ${user} -t ${tenant} -p ${secret}
+		
+		
+		#Local function's local project
+		echo "Creating function's local project"
+		
+		if [ ! -d ${app}${id} ]; then
+			func init ${app}${id} --worker-runtime=node --no-source-control -n
+			
+			cd ${app}${id}
+			
+			rm -f host.json
+			echo '{
+			  "version": "2.0",
+			  "logging": {
+			    "applicationInsights": {
+			      "samplingSettings": {
+			        "isEnabled": true,
+			        "excludedTypes": "Request"
+			      }
+			    }
+			  },
+			  "extensionBundle": {
+			    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+			    "version": "[1.*, 2.0.0)"
+			  }
+			}' > host.json;
+			
+
+			rm -f package.json
+			echo '{
+			  "name": "'${function}'",
+			  "version": "1.0.0",
+			  "main": "index.js",
+			  "dependencies": {
+			    "azure-storage": "2.10.3",
+			    "async": "3.2.0",
+			    "axios": "0.19.2",
+			    "qs": "6.9.4",
+			    "util": "0.12.3",
+			    "dataframe-js": "1.4.3",
+			    "mysql": "2.18.1"
+			  },
+			  "devDependencies": {},
+			  "scripts": {
+			    "test": "echo \"Error: no test specified\" && exit 1"
+			  },
+			  "author": "",
+			  "license": "ISC"
+			}
+			' > package.json;
+			
+		else
+			cd ${app}${id}
+		fi
+		
+		echo "Function's local project has been created"
+		
+		echo "Creating Function's folder and files..."
+		
+		mkdir ${function}
+		cd ${function}
+		
+		
+		echo '{
+		  "bindings": [
+		    {
+		      "authLevel": "admin",
+		      "type": "httpTrigger",
+		      "direction": "in",
+		      "name": "req",
+		      "methods": [
+		        "get",
+		        "post"
+		      ]
+		    },
+		    {
+		      "type": "http",
+		      "direction": "out",
+		      "name": "res"
+		    }
+		  ]
+		}' > function.json
+		echo "function.json created"
+		
+		#Creating function's source file
+		
+		echo '«generateBodyJs(resource,root.body,root.parameters,name,env)»
+				«FOR fd:functionCalled.values()»
+					
+				«generateJsExpression(fd, name)»
+				
+				«ENDFOR»
+				' > index.js
+
+		echo "index.js created"
+		
+		echo "Function's files have been created"
+		
+		#Routine to deploy on Azure
+		cd ..
+		
+		echo "Fetching the function"
+		until func azure functionapp fetch-app-settings ${app}${id}
+		do
+		    echo "Fetch attempt"
+		done		
+		
+		npm install
+		
+		echo "Deploying the function"
+		until func azure functionapp publish ${app}${id} --resource-group flyrg${id} --force -javascript --build-remote
+		do
+		    echo "Deploy attempt"
+		done
+		
+				
+		echo "Function deployed"
+		
+		az  logout
+		
+		cd ..
+		rm -rf ${app}${id}
+	'''
+	
+	def CharSequence AzureUndeploy(Resource resource, String string, boolean local)
+	'''
 	
 	'''
 	
-	def CharSequence AzureUndeploy(Resource resource, String string) '''
-	#!/bin/bash
 	
-	'''
+	
 	def CharSequence compileScriptUndeploy(Resource resource, String name, boolean local){
 		switch this.env {
-			   case "aws": UndeployAWS(resource,name)
-			   case "aws-debug": " not supported"
-			   case "azure": " not supported"
+			   case "aws": AWSUndeploy(resource,name)
+			   case "aws-debug": AWSDebugUndeploy(resource,name)
+			   case "azure": AzureUndeploy(resource,name,local)
 			   default: this.env+" not supported"
 	  		}
 	} 
-	
 }
