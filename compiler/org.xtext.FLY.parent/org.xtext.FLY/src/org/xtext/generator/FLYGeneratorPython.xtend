@@ -114,6 +114,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 			.filter[(it.environment.right as DeclarationObject).features.get(0).value_s != 'smp']
 			.map[it.lib]
 			.toList
+		// libraries installation - to optimize
 		allReqs.add("pytz")
 		allReqs.add("ortools")
 		allReqs.add("numpy")
@@ -183,15 +184,11 @@ class FLYGeneratorPython extends AbstractGenerator {
 		fsa.generateFile("requirements.txt", res)
 	} 
 
-	/*PEPPE: funzione in più rispetto alla mia versione */
 	def paramsName(List<Expression> expressions) {
 			val tmp = new ArrayList()
 			for(Expression e: expressions){
 				tmp.add((e as VariableDeclaration).name)
-				//println("sdasds "+ (e as VariableDeclaration).name)
 			}
-				
-
 			return tmp
 	}
 
@@ -390,24 +387,18 @@ class FLYGeneratorPython extends AbstractGenerator {
 					if((exp.right as ArrayDefinition).indexes.length==1){
 						var len = (exp.right as ArrayDefinition).indexes.get(0).value
 						typeSystem.get(scope).put(exp.name, "Array_"+type)
-						s += '''
-						«exp.name» = [None] * «generatePyArithmeticExpression(len, scope, local)»
-						'''
+						s += '''«exp.name» = [None] * «generatePyArithmeticExpression(len, scope, local)»'''
 					}else if((exp.right as ArrayDefinition).indexes.length==2){
 						var row = (exp.right as ArrayDefinition).indexes.get(0).value
 						var col = (exp.right as ArrayDefinition).indexes.get(1).value
 						typeSystem.get(scope).put(exp.name, "Matrix_"+type+"_"+generatePyArithmeticExpression(col, scope, local))
-						s += '''
-						«exp.name» = [None] * («generatePyArithmeticExpression(row, scope, local)»* «generatePyArithmeticExpression(col, scope, local)»)
-						'''
+						s += '''«exp.name» = [None] * («generatePyArithmeticExpression(row, scope, local)»* «generatePyArithmeticExpression(col, scope, local)»)'''
 					}else if((exp.right as ArrayDefinition).indexes.length==3){
 						var row = (exp.right as ArrayDefinition).indexes.get(0).value
 						var col = (exp.right as ArrayDefinition).indexes.get(1).value
 						var dep = (exp.right as ArrayDefinition).indexes.get(2).value
 						typeSystem.get(scope).put(exp.name, "Matrix_"+type+"_"+generatePyArithmeticExpression(col, scope, local)+"_"+generatePyArithmeticExpression(dep, scope, local))
-						s += '''
-						«exp.name» = [None] * «generatePyArithmeticExpression(row, scope, local)» * «generatePyArithmeticExpression(col, scope, local)» *«generatePyArithmeticExpression(dep, scope, local)»
-						'''
+						s += '''«exp.name» = [None] * «generatePyArithmeticExpression(row, scope, local)» * «generatePyArithmeticExpression(col, scope, local)» *«generatePyArithmeticExpression(dep, scope, local)»'''
 					}
 					
 				} 
@@ -415,24 +406,35 @@ class FLYGeneratorPython extends AbstractGenerator {
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
 					
 					switch (type) {
-						case "dataframe": { /*PEPPE: io ho impostato la path nel 2 e il separator nel 3 */
+						case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
 							var path = "";
+							var region = "";
+							var uri = "";
 							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
-								path = (exp.right as DeclarationObject).features.get(1).value_f.name
+								path = (exp.right as DeclarationObject).features.get(2).value_f.name
 							}else{
-								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
+								path = (exp.right as DeclarationObject).features.get(2).value_s.replaceAll('"', '\'');
 							}
-							//var fileType = (exp.right as DeclarationObject).features.get(2).value_s
-							var sep = (exp.right as DeclarationObject).features.get(2).value_s
+							
+							var sep = (exp.right as DeclarationObject).features.get(3).value_s
 							//path = path.replaceAll('"', '');
-							var uri = '''«IF (exp as VariableDeclaration).onCloud && ! (path.contains("https://")) »«IF env == "aws"»https://s3.us-east-2.amazonaws.com«ELSEIF env=="aws-debug"»http://192.168.0.1:4572«ELSEIF env=="azure"»https://"${storageName}".blob.core.windows.net«ENDIF»/bucket-"${id}"/«path»«ELSE»«path»«ENDIF»'''
-		
-							s += '''
-								«exp.name» = pd.read_csv('«uri»', sep='«sep»')
-							'''		
+							if ((exp as VariableDeclaration).onCloud && !(path.contains("https://"))){
+								region = ((exp as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(4).value_s
+								if ((((exp as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("aws")){
+									uri = '''https://"${function}${id}".s3.«region».amazonaws.com/bucket-"${id}"/«path»'''
+								} else if ((((exp as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("azure")){
+									uri = '''https://"${storagename}".blob.core.windows.net/bucket-«id_execution»/«path»'''
+								} else if ((((exp as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("aws-debug")){
+									uri = '''https://http://192.168.0.1:4572/bucket-"${id}"/«path»'''
+								}
+							} else {
+								uri = path
+							}
+							//var uri = '''«IF ((exp as VariableDeclaration).onCloud && !(path.contains("https://")))»https://'+'"${function}"'+'"${id}"'+'.s3.«region».amazonaws.com/«path» «ELSE»«path»«ENDIF»'''
+							s += '''«exp.name» = pd.read_csv('«uri»', sep='«sep»')'''		
 						}
-						case "file":{ /*differente e con lettera maiuscola */
+						case "file":{ 
 							typeSystem.get(scope).put(exp.name, "File")
 							var path = "";
 							if((exp.right as DeclarationObject).features.get(1).value_f!=null){
@@ -440,8 +442,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 							}else{
 								path = (exp.right as DeclarationObject).features.get(1).value_s.replaceAll('"', '\'');
 							}
-							return '''
-							if 'http' in «path»:
+							return '''if 'http' in «path»:
 								«exp.name» = urllib.request.urlopen(urllib.request.Request(«path»,headers={'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'}))
 							else:
 								«exp.name» = open(«path»,'rw')'''
@@ -499,7 +500,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 									  	db= '«db_name»'
 									)
 									__cursor«exp.name» = «exp.name».cursor()
-									
 								'''
 							}
 						} case "query":{
@@ -509,9 +509,9 @@ class FLYGeneratorPython extends AbstractGenerator {
 							«IF 
 								((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s.nullOrEmpty
 							»
-							«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
+								«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
 							« ELSE » 
-							'«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»'
+								'«((exp.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»'
 							«ENDIF»
 							)
 							'''
@@ -521,14 +521,10 @@ class FLYGeneratorPython extends AbstractGenerator {
 						}
 					}
 				} else if(exp.right instanceof VariableFunction){
-					s += '''
-						«exp.name» = «generatePyVariableFunction((exp.right as VariableFunction), true, scope)»
-					'''
+					s += '''«exp.name» = «generatePyVariableFunction((exp.right as VariableFunction), true, scope)»'''
 				} else { 
 					typeSystem.get(scope).put(exp.name, valuateArithmeticExpression(exp.right as ArithmeticExpression,scope,local))
-					s += '''
-						«exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression, scope, local)»
-					'''
+					s += '''«exp.name» = «generatePyArithmeticExpression(exp.right as ArithmeticExpression, scope, local)»'''
 				}
 
 			} 
@@ -650,7 +646,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				if ((((assignment.value as CastExpression).target as ChannelReceive).target.environment.get(0).
 					right as DeclarationObject).features.get(0).value_s.equals("aws")) { // aws environment2
 					// And we are on AWS
-					//TODO controllare receive_message
+					//TODO check receive_message
 					if ((assignment.value as CastExpression).type.equals("Integer")) {
 						// And we are trying to read an integer
 						return '''
@@ -759,7 +755,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 					if ((assignment.feature_obj as IndexObject).indexes.length == 2) {
 						var i = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(0).value ,scope, local);
 						var j = generatePyArithmeticExpression((assignment.feature_obj as IndexObject).indexes.get(1).value ,scope, local);
-						/*PEPPE: perché è commentato? */
+						// to check
 						//var col = typeSystem.get(scope).get((assignment.feature_obj as IndexObject).name.name).split("_").get(2)
 						
 						return '''
@@ -1002,9 +998,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				var i = generatePyArithmeticExpression(exp.indexes.get(0).value ,scope, local);
 				var j = generatePyArithmeticExpression(exp.indexes.get(1).value ,scope, local);
 	
-				return '''
-					«(exp.name as VariableDeclaration).name»[(«i»*__«(exp.name as VariableDeclaration).name»_cols)+«j»]['value']
-				'''
+				return '''«(exp.name as VariableDeclaration).name»[(«i»*__«(exp.name as VariableDeclaration).name»_cols)+«j»]['value']'''
 				
 				
 			} else { // matrix 3d
@@ -1024,7 +1018,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				return '''«channelName».readline()'''
 			}
 			var env = ((exp.target.environment as VariableDeclaration).right as DeclarationObject).features.get(0).value_s
-			if(env.equals("aws")){ //TODO cancellare messaggio, controllare se non viene mai invocata
+			if(env.equals("aws")){ 
 				return '''«channelName».receive_messages()[0]'''
 			}else if(env.equals("azure")){
 				return '''
@@ -1314,7 +1308,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 	
-	if [ $? -eq 255 ]; then 
+	if [ $? -ne 0 ]; then 
 		role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 	fi
 	
@@ -1494,14 +1488,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 	
-	if [ $? -eq 255 ]; then 
+	if [ $? -ne 0 ]; then 
 		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 	fi
 	
 	echo "role lambda-sqs-execution created at ARN "$role_arn
 	
-	aws iam --endpoint-url=http://localhost:4593 --profile dummy_fly_debug put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
-	
+	aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug put-role-policy --role-name lambda-sqs-execution --policy-name lambda-sqs-policy --policy-document file://policyDocument.json
 	
 	echo "Installing requirements"
 		
@@ -1551,32 +1544,31 @@ class FLYGeneratorPython extends AbstractGenerator {
 	
 	zip -r -g -9 ${id}_lambda.zip ${function}.py
 	
-	deactivate
 	
 		
 	#create the lambda function
 	echo "creation of the lambda function"
 	
 	if [ $(wc -c < ${id}_lambda.zip) -lt 50000000 ]; then
-		aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
 		
 		while [ $? -ne 0 ]; do
-			aws lambda --profile ${user} create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+			aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
 		done
 	else
 		echo "zip file too big, uploading it using s3"
 		echo "creating bucket for s3"
-		aws s3 --profile ${user} mb s3://${function,,}${id}bucket
+		aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug mb s3://${function,,}${id}bucket
 		echo "s3 bucket created. uploading file"
-		aws s3 --profile ${user} cp ${id}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+		aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug cp ${id}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 		echo "file uploaded, creating function"
-		aws lambda --profile ${user} create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
+		aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «timeout»
 		echo "lambda function created"
 	fi
 	
 	
 	# clear 
-	rm -r venv/
+	rm -r v-env/
 	rm ${function}.py
 	rm ${id}_lambda.zip
 	rm rolePolicyDocument.json
@@ -1616,13 +1608,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def CharSequence AzureDeploy(Resource resource, String name, boolean local)
 	'''
 		#!/bin/bash
-		
-«««		#Check if script is running as sudo
-«««		if [[ $# -ne 6 ]]; then
-«««			echo "Error in number of parameters, run with:"
-«««			echo "<app-name> <function-name> <executionId> <clientId> <tenantId> <secret> <subscriptionId> <timeout> <storageName> <storageKey>"
-«««			exit 1
-«««		fi
 		
 					
 		if [ $# -ne 9 ]

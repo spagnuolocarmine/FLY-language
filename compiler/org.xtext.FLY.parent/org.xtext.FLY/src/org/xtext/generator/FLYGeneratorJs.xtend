@@ -176,96 +176,6 @@ class FLYGeneratorJs extends AbstractGenerator {
 	def CharSequence compileJS(Resource resource, FunctionDefinition func, String env) '''
 		«generateBodyJs(resource,func.body,func.parameters,func.name,env)»
 	'''
-
-	/*PEPPE: metodo totalmente cambiato 
-	def generateBodyJs(Resource resource,BlockExpression exps,List<Expression> parameters, String name, String env) {
-		'''		
-			«IF env == "aws"»
-				var AWS = require(\"aws-sdk\");
-				var sqs = new AWS.SQS();
-			«ELSEIF env=="azure"»
-				const { QueueServiceClient, StorageSharedKeyCredential } = require(\"@azure/storage-queue\");
-				const { BlobServiceClient} = require(\"@azure/storage-blob\");
-				const sharedKeyCredential = new StorageSharedKeyCredential(\""${storageName}"\",\""${storageKey}"\");
-				const queueServiceClient = new QueueServiceClient(
-				    \"https://"${storageName}".queue.core.windows.net\",
-				    sharedKeyCredential
-				);
-				
-				const blobServiceClient = new BlobServiceClient(
-				  \"https://"${storageName}".blob.core.windows.net\",
-				  sharedKeyCredential
-				);
-				
-				const containerClient = blobServiceClient.getContainerClient(\"bucket-"${id}"\");
-				
-				«FOR  ch :channelsNames(exps,env)»
-				const «ch» = queueServiceClient.getQueueClient(\"«ch»-"${id}"\");
-				«ENDFOR»
-			«ENDIF»
-			
-			var __dataframe = require(\"dataframe-js\").DataFrame;
-			const readline = require(\"readline\");
-			«FOR req: exps.expressions.filter(RequireExpression)»
-			
-			«ENDFOR»
-			let __params;
-			let id_func;
-			let __data;
-			
-			«FOR exp : resource.allContents.toIterable.filter(ConstantDeclaration)»
-				«generateConstantDefinition(exp,name)»
-			«ENDFOR»
-			«IF env == "aws"»
-			exports.handler = async (event,context) => {
-			«ELSEIF env=="azure"»
-			module.exports = async function (context, req) {
-				id_func = req.body.id;
-				const data = req.body.data;
-			«ENDIF»	
-				«FOR exp : parameters»
-					«IF env == "aws"»
-						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-							var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(event));
-							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
-						«ELSE»
-							var «(exp as VariableDeclaration).name» = event;
-						«ENDIF»
-					«ELSEIF env == "azure"»
-						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
-							var __«(exp as VariableDeclaration).name» = await new __dataframe(JSON.parse(data));
-							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
-						«ELSE»
-							var «(exp as VariableDeclaration).name» = data;
-						«ENDIF»
-					«ENDIF»
-				«ENDFOR»
-				
-				«FOR exp : exps.expressions»
-					«generateJsExpression(exp,name)»
-				«ENDFOR»
-				
-				«IF env=="aws"»
-				__data = await sqs.getQueueUrl({ QueueName: \"termination-"${function}"-"${id}"-\"+id_func}).promise();
-							
-				__params = {
-					MessageBody : JSON.stringify(\"terminate\"),
-					QueueUrl : __data.QueueUrl
-				}
-							
-				__data = await sqs.sendMessage(__params).promise();
-				«ELSEIF env=="azure"»
-					const termQueue=queueServiceClient.getQueueClient(\"termination-"${function}"-"${id}"-\"+id_func);
-					const sendMessageResponse2 = await termQueue.sendMessage(\"terminate\");
-				«ENDIF»
-				
-				context.res = {
-					status: 200, 
-					body: \"Ok!\"
-				};
-			}
-		'''
-	} */
 	
 	def generateBodyJs(Resource resource,BlockExpression exps,List<Expression> parameters, String name, String env) {
 		
@@ -278,7 +188,12 @@ class FLYGeneratorJs extends AbstractGenerator {
 			var __rds = new __AWS.RDS();
 			
 				«ELSE»
-			__AWS.config.update({region: "us-east-1"});
+			__AWS.config.update({
+			    accessKeyId: "dummy",
+			    secretAccessKey: "dummy",
+			    region:"us-east-1",
+			    logger: process.stdout
+			})
 			var __sqs = new __AWS.SQS({endpoint: "http://192.168.0.1:4576"});
 				«ENDIF»
 			let __params;
@@ -529,7 +444,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 					}
 					s += '''}'''
 
-				} else if(exp.right instanceof ArrayDefinition ){  // DA MODIFICARE AGGIUNGERE MATRICE 2 E 3 DIMENSIONALE
+				} else if(exp.right instanceof ArrayDefinition ){  // TODO: check and complete
 					var type_decl =(exp.right as ArrayDefinition).type
 					if((exp.right as ArrayDefinition).indexes.length==1){ //mono-dimensional
 						typeSystem.get(scope).put(exp.name, "Array_"+type_decl)
@@ -633,12 +548,17 @@ class FLYGeneratorJs extends AbstractGenerator {
 						}case "dataframe": {
 							typeSystem.get(scope).put(exp.name, "Table")
 							var url = "";
-							var path = (exp.right as DeclarationObject).features.get(1).value_s
-							
-							if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("aws") && ! (path.contains("https://")))
-								url = "https://s3.us-east-2.amazonaws.com/bucket-'${id}'/" + path
-							else if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.contains("azure") && ! (path.contains("https://")))
-								url = "https://'${storageName}'.blob.core.windows.net/bucket-'${id}'/" + path
+							var path = (exp.right as DeclarationObject).features.get(2).value_s
+							var region = "";
+							if ((exp as VariableDeclaration).onCloud){
+								region = ((exp as VariableDeclaration).environment.get(0).right as DeclarationObject).features.get(4).value_s
+							}
+							if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("aws") && ! (path.contains("https://")))
+								url = "https://'${function}${id}'.s3." + region + ".amazonaws.com/bucket-'${id}'/" + path
+							else if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("azure") && ! (path.contains("https://")))
+								url = "https://'${storageName}'.blob.core.windows.net/bucket-"+id_execution+ "/" + path
+							else if ((exp as VariableDeclaration).onCloud && (exp.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("aws-debug") && ! (path.contains("https://")))
+							url = "https://http://192.168.0.1:4572/bucket-'${id}'/" + path
 							else
 								url = path
 
@@ -1149,7 +1069,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 			return '''Math.«exp.feature»(«FOR par: exp.expressions» «generateJsArithmeticExpression(par,scope)» «IF !par.equals(exp.expressions.last)»,«ENDIF»«ENDFOR»)'''
 		}else if(exp instanceof LocalFunctionCall){
 			var s=''''''
-			s += "await"
+			s += "await "
 			s += exp.target.name + "("
 			if (exp.input != null) {
 				for (input : exp.input.inputs) {
@@ -1426,7 +1346,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		role_arn=$(aws iam --profile ${user} get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 		
-		if [ $? -eq 255 ]; then 
+		if [ $? -ne 0 ]; then 
 			role_arn=$(aws iam --profile ${user} create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 		fi
 		
@@ -1698,7 +1618,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 		
 		role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug get-role --role-name lambda-sqs-execution --query 'Role.Arn')
 		
-		if [ $? -eq 255 ]; then 
+		if [ $? -ne 0 ]; then 
 			role_arn=$(aws --endpoint-url=http://localhost:4593 iam --profile dummy_fly_debug create-role --role-name lambda-sqs-execution --assume-role-policy-document file://rolePolicyDocument.json --output json --query 'Role.Arn')
 		fi
 		
@@ -1807,23 +1727,36 @@ class FLYGeneratorJs extends AbstractGenerator {
 		echo ""
 		echo "creating .zip file"
 		
-		zip -r -q -9 ../${function}_lambda.zip . 
+		zip -r -q -9 ../${id}\_lambda.zip . 
+		echo "zip created"
 		
 		cd .. 
 			
 		#create the lambda function
 		echo "creation of the lambda function"
-		aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
 		
-		while [ $? -ne 0 ]; do
-			aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${function}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory» --timeout «time»
-		done
+		if [ $(wc -c < ${id}_lambda.zip) -lt 50000000 ]; then
+			aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory»
+			
+			while [ $? -ne 0 ]; do
+				aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --zip-file fileb://${id}_lambda.zip --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory»
+			done
+		else
+			echo "zip file too big, uploading it using s3"
+			echo "creating bucket for s3"
+			aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug mb s3://${function,,}${id}bucket
+			echo "s3 bucket created. uploading file"
+			aws --endpoint-url=http://localhost:4572 s3 --profile dummy_fly_debug cp ${id}_lambda.zip s3://${function,,}${id}bucket --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+			echo "file uploaded, creating function"
+			aws --endpoint-url=http://localhost:4574 lambda --profile dummy_fly_debug create-function --function-name ${function}_${id} --code S3Bucket=""${function,,}""${id}"bucket",S3Key=""${id}"_lambda.zip" --handler ${function}.handler --runtime «language» --role ${role_arn//\"} --memory-size «memory»
+			echo "lambda function created"
+		fi
 		
 		echo "lambda function created"
 		
 		# clear 
-		rm -r ${function}_lambda/
-		rm ${function}_lambda.zip
+		rm -r ${function}_lambda
+		rm ${id}_lambda.zip
 		rm rolePolicyDocument.json
 		rm policyDocument.json
 		'''

@@ -135,114 +135,114 @@ class FLYGenerator extends AbstractGenerator {
 	
 		
 	def CharSequence compileJava(Resource resource) '''
-		import java.io.File;
-		import java.io.FileInputStream;
-		import java.io.InputStreamReader;
-		import java.io.FileOutputStream;
-		import java.io.OutputStreamWriter;
-		import java.io.IOException;
-		import java.nio.ByteBuffer;
-		import java.nio.channels.FileChannel;
-		import java.nio.file.StandardOpenOption;
-		import java.io.InputStream;
-		import java.net.ServerSocket;
-		import java.net.Socket;
-		import java.io.BufferedReader;
-		import java.util.ArrayList;
-		import java.util.Arrays;
-		import java.util.List;
-		import java.util.zip.ZipEntry;
-		import java.util.zip.ZipOutputStream;
-		import java.io.BufferedWriter;
-		import java.io.FileWriter;
-		import java.io.IOException;
-		import java.util.HashMap;
-		import java.time.LocalDate;
-		import tech.tablesaw.api.Table;
-		import tech.tablesaw.io.csv.CsvReadOptions;
-		import tech.tablesaw.io.csv.CsvWriteOptions;
-		import tech.tablesaw.columns.Column;
-		import tech.tablesaw.selection.Selection;
-		import tech.tablesaw.table.Rows;
-		import tech.tablesaw.api.Row;
-		import java.util.concurrent.LinkedTransferQueue;
-		import java.util.concurrent.ExecutorService;
-		import java.util.concurrent.Executors;
-		import java.util.concurrent.ExecutionException;
-		import java.util.ArrayList;
-		import java.util.List;
-		import java.util.concurrent.Callable;
-		import java.util.concurrent.Future;
-		import java.util.concurrent.atomic.AtomicInteger;
-		import java.util.Random;
-		import java.util.Collections;
-		import java.util.Comparator;
-		import java.util.Map;
-		import java.util.Scanner;
-		import org.apache.commons.io.FileUtils;
-		import org.apache.commons.io.FileUtils;
-		import java.sql.*;
+	import java.io.File;
+	import java.io.FileInputStream;
+	import java.io.InputStreamReader;
+	import java.io.FileOutputStream;
+	import java.io.OutputStreamWriter;
+	import java.io.IOException;
+	import java.nio.ByteBuffer;
+	import java.nio.channels.FileChannel;
+	import java.nio.file.StandardOpenOption;
+	import java.io.InputStream;
+	import java.net.ServerSocket;
+	import java.net.Socket;
+	import java.io.BufferedReader;
+	import java.util.ArrayList;
+	import java.util.Arrays;
+	import java.util.List;
+	import java.util.zip.ZipEntry;
+	import java.util.zip.ZipOutputStream;
+	import java.io.BufferedWriter;
+	import java.io.FileWriter;
+	import java.io.IOException;
+	import java.util.HashMap;
+	import java.time.LocalDate;
+	import tech.tablesaw.api.Table;
+	import tech.tablesaw.io.csv.CsvReadOptions;
+	import tech.tablesaw.io.csv.CsvWriteOptions;
+	import tech.tablesaw.columns.Column;
+	import tech.tablesaw.selection.Selection;
+	import tech.tablesaw.table.Rows;
+	import tech.tablesaw.api.Row;
+	import java.util.concurrent.LinkedTransferQueue;
+	import java.util.concurrent.ExecutorService;
+	import java.util.concurrent.Executors;
+	import java.util.concurrent.ExecutionException;
+	import java.util.ArrayList;
+	import java.util.List;
+	import java.util.concurrent.Callable;
+	import java.util.concurrent.Future;
+	import java.util.concurrent.atomic.AtomicInteger;
+	import java.util.Random;
+	import java.util.Collections;
+	import java.util.Comparator;
+	import java.util.Map;
+	import java.util.Scanner;
+	import org.apache.commons.io.FileUtils;
+	import org.apache.commons.io.FileUtils;
+	import java.sql.*;
 		«IF checkAWS() || checkAWSDebug()»
-		import com.amazonaws.AmazonClientException;
-		import com.amazonaws.auth.AWSStaticCredentialsProvider;
-		import com.amazonaws.auth.BasicAWSCredentials;
-		import com.amazonaws.auth.profile.ProfileCredentialsProvider;
-		import com.amazonaws.services.identitymanagement.AmazonIdentityManagement;
-		import com.amazonaws.services.identitymanagement.AmazonIdentityManagementClientBuilder;
-		import com.amazonaws.services.identitymanagement.model.CreateRoleRequest;
-		import com.amazonaws.services.identitymanagement.model.CreateRoleResult;
-		import com.amazonaws.services.identitymanagement.model.DeleteRolePolicyRequest;
-		import com.amazonaws.services.identitymanagement.model.DeleteRoleRequest;
-		import com.amazonaws.services.identitymanagement.model.PutRolePolicyRequest;
-		import com.amazonaws.services.lambda.AWSLambda;
-		import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
-		import com.amazonaws.services.lambda.model.AddPermissionRequest;
-		import com.amazonaws.services.lambda.model.AddPermissionResult;
-		import com.amazonaws.services.lambda.model.CreateFunctionRequest;
-		import com.amazonaws.services.lambda.model.CreateFunctionResult;
-		import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
-		import com.amazonaws.services.lambda.model.FunctionCode;
-		import com.amazonaws.services.lambda.model.InvokeRequest;
-		import com.amazonaws.services.sqs.AmazonSQS;
-		import com.amazonaws.services.sqs.model.Message;
-		import com.amazonaws.services.sqs.AmazonSQSClient;
-		import com.amazonaws.services.sqs.model.CreateQueueRequest;
-		import com.amazonaws.services.sqs.model.CreateQueueResult;
-		import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
-		import com.amazonaws.services.sqs.model.ReceiveMessageResult;
-		import com.amazonaws.services.sqs.model.SendMessageRequest;
-		import com.amazonaws.services.sqs.model.AmazonSQSException;
-		import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
-		import com.amazonaws.services.sqs.model.GetQueueUrlResult;
-		import com.amazonaws.services.sqs.model.DeleteQueueRequest;
-		import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
-		import com.amazonaws.services.identitymanagement.model.GetRoleResult;
-		import com.amazonaws.services.s3.AmazonS3;
-		import com.amazonaws.services.s3.AmazonS3Client;
-		import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-		import com.amazonaws.services.s3.model.AmazonS3Exception;
-		import com.amazonaws.services.s3.model.Bucket;
-		import com.amazonaws.services.s3.model.CannedAccessControlList;
-		import com.amazonaws.services.s3.model.PutObjectRequest;
-		import com.amazonaws.services.s3.model.ListObjectsV2Result;
-		import com.amazonaws.services.s3.model.PutObjectRequest;
-		import com.amazonaws.services.s3.model.S3ObjectSummary;
-		import com.amazonaws.services.rds.AmazonRDS;
-		import com.amazonaws.services.rds.AmazonRDSClient;
-		import com.amazonaws.services.rds.model.DBInstance;
-		import com.amazonaws.services.rds.model.DescribeDBInstancesRequest;
-		import com.amazonaws.services.rds.model.DescribeDBInstancesResult;
-		import com.amazonaws.services.rds.model.Endpoint;
-		
+	import com.amazonaws.AmazonClientException;
+	import com.amazonaws.auth.AWSStaticCredentialsProvider;
+	import com.amazonaws.auth.BasicAWSCredentials;
+	import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+	import com.amazonaws.services.identitymanagement.AmazonIdentityManagement;
+	import com.amazonaws.services.identitymanagement.AmazonIdentityManagementClientBuilder;
+	import com.amazonaws.services.identitymanagement.model.CreateRoleRequest;
+	import com.amazonaws.services.identitymanagement.model.CreateRoleResult;
+	import com.amazonaws.services.identitymanagement.model.DeleteRolePolicyRequest;
+	import com.amazonaws.services.identitymanagement.model.DeleteRoleRequest;
+	import com.amazonaws.services.identitymanagement.model.PutRolePolicyRequest;
+	import com.amazonaws.services.lambda.AWSLambda;
+	import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
+	import com.amazonaws.services.lambda.model.AddPermissionRequest;
+	import com.amazonaws.services.lambda.model.AddPermissionResult;
+	import com.amazonaws.services.lambda.model.CreateFunctionRequest;
+	import com.amazonaws.services.lambda.model.CreateFunctionResult;
+	import com.amazonaws.services.lambda.model.DeleteFunctionRequest;
+	import com.amazonaws.services.lambda.model.FunctionCode;
+	import com.amazonaws.services.lambda.model.InvokeRequest;
+	import com.amazonaws.services.sqs.AmazonSQS;
+	import com.amazonaws.services.sqs.model.Message;
+	import com.amazonaws.services.sqs.AmazonSQSClient;
+	import com.amazonaws.services.sqs.model.CreateQueueRequest;
+	import com.amazonaws.services.sqs.model.CreateQueueResult;
+	import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
+	import com.amazonaws.services.sqs.model.ReceiveMessageResult;
+	import com.amazonaws.services.sqs.model.SendMessageRequest;
+	import com.amazonaws.services.sqs.model.AmazonSQSException;
+	import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
+	import com.amazonaws.services.sqs.model.GetQueueUrlResult;
+	import com.amazonaws.services.sqs.model.DeleteQueueRequest;
+	import com.amazonaws.services.identitymanagement.model.GetRoleRequest;
+	import com.amazonaws.services.identitymanagement.model.GetRoleResult;
+	import com.amazonaws.services.s3.AmazonS3;
+	import com.amazonaws.services.s3.AmazonS3Client;
+	import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+	import com.amazonaws.services.s3.model.AmazonS3Exception;
+	import com.amazonaws.services.s3.model.Bucket;
+	import com.amazonaws.services.s3.model.CannedAccessControlList;
+	import com.amazonaws.services.s3.model.PutObjectRequest;
+	import com.amazonaws.services.s3.model.ListObjectsV2Result;
+	import com.amazonaws.services.s3.model.PutObjectRequest;
+	import com.amazonaws.services.s3.model.S3ObjectSummary;
+	import com.amazonaws.services.rds.AmazonRDS;
+	import com.amazonaws.services.rds.AmazonRDSClient;
+	import com.amazonaws.services.rds.model.DBInstance;
+	import com.amazonaws.services.rds.model.DescribeDBInstancesRequest;
+	import com.amazonaws.services.rds.model.DescribeDBInstancesResult;
+	import com.amazonaws.services.rds.model.Endpoint;
+
 		«ENDIF»
 		«IF checkAWSDebug()»
-		import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
+	import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration;
 		«ENDIF»
-		import com.google.gson.Gson;
-		import com.google.gson.reflect.TypeToken;
+	import com.google.gson.Gson;
+	import com.google.gson.reflect.TypeToken;
 		«IF checkAzure()»
-		import com.microsoft.azure.management.resources.fluentcore.arm.Region;
-		import isislab.azureclient.AzureClient;
+	import com.microsoft.azure.management.resources.fluentcore.arm.Region;
+	import isislab.azureclient.AzureClient;
 		«ENDIF»
 		
 		public class «name» {
@@ -382,7 +382,7 @@ class FLYGenerator extends AbstractGenerator {
 				for(Row r : t) {
 					b.append('{');
 					for (int i=0;i< r.columnCount();i++) {
-						b.append("\""+ r.columnNames().get(i) +"\":\""+r.getObject(i)+ ((i<r.columnCount()-1)?",":""));
+						b.append("\""+ r.columnNames().get(i) +"\":\""+r.getObject(i)+ ((i<r.columnCount()-1)?"\",":""));
 					}
 					b.append("\"}"+(((i_r != 1 ))?",":""));
 					i_r--;
@@ -780,24 +780,43 @@ class FLYGenerator extends AbstractGenerator {
 						typeSystem.get(scope).put(dec.name, "Table")
 						if(source.value_s.nullOrEmpty){
 							return '''
+							«IF dec.onCloud»
+							«deployFileOnCloud(dec,id_execution)»
+							«ELSE»
 							Table «dec.name» = Table.read().db(
-								«source.value_f.name».prepareStatement(
-								«IF !query.nullOrEmpty»
+							«source.value_f.name».prepareStatement(
+							«IF !query.nullOrEmpty»
 								"«query»"
-								«ELSE»
+							«ELSE»
 								"SELECT * FROM «table_name»" «ENDIF» 
-								).executeQuery());
-								'''
+							).executeQuery());
+							«ENDIF»
+							'''
 						}else{
+							var region = "";
+							var uri = "";
+							if (dec.onCloud && ! (source.value_s.contains("https://"))){
+								region = (dec.environment.get(0).right as DeclarationObject).features.get(4).value_s
+								if(((dec.environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("aws")){
+									uri = '''"https://«name»"+__id_execution+".s3.«region».amazonaws.com/bucket-"+__id_execution+"/«source.value_s»"'''
+								} else if(((dec.environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("azure")){
+									uri = '''"https://flysa"+__id_execution+".blob.core.windows.net/bucket-"+__id_execution+"/«source.value_s»"'''
+								} else if(((dec.environment.get(0).right as DeclarationObject).features.get(0).value_s).equals("aws-debug")){
+									uri = '''"https://«name»"+__id_execution+".s3.«region».amazonaws.com/bucket-"+__id_execution+"/«source.value_s»"'''
+								} 
+							} else{
+									uri = '''"«source.value_s»"'''
+							}	
+							
 							return '''
 							Table «dec.name» = Table.read().csv(CsvReadOptions
-																.builder(«IF dec.onCloud && ! (source.value_s.contains("https://")) » "https://s3.us-east-2.amazonaws.com/bucket-"+__id_execution+"/«source.value_s»" «ELSE»"«source.value_s»"«ENDIF»)
-																.tableName("«table_name»")
-																«IF !separator.nullOrEmpty»
-																.separator('«separator»') «ENDIF»
-																«IF !header.nullOrEmpty»
-																.header(«header») «ENDIF»
-															);
+								.builder(«uri»)
+								.tableName("«table_name»")
+								«IF !separator.nullOrEmpty»
+								.separator('«separator»') «ENDIF»
+								«IF !header.nullOrEmpty»
+								.header(«header») «ENDIF»
+							);
 							'''
 						}
 					}
@@ -858,13 +877,13 @@ class FLYGenerator extends AbstractGenerator {
 						}
 						var connection = ((dec.right as DeclarationObject).features.get(2) as DeclarationFeature).value_f.name
 						return '''
-						PreparedStatement «dec.name» = «connection».prepareStatement(														
+						PreparedStatement «dec.name» = «connection».prepareStatement(
 						«IF 
 							((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s.nullOrEmpty
 						»
 						«((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_f.name»
 						« ELSE » 
-						"«((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»"
+							"«((dec.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»"
 						«ENDIF»
 						);
 						'''	 
@@ -1017,7 +1036,7 @@ class FLYGenerator extends AbstractGenerator {
 				'''
 				return s
 			} else if (dec.right instanceof VariableFunction) {
-				/* PEPPE: perché è commentato?
+				/* 
 				 * if ((dec.right as VariableFunction).feature.equals("split")) {
 					typeSystem.get(scope).put(dec.name, "HashMap")
 					return '''
@@ -1047,6 +1066,12 @@ class FLYGenerator extends AbstractGenerator {
 							typeSystem.get(scope).put(dec.name, "HashMap")
 							return '''
 								String __res_«((dec.right as CastExpression).target as ChannelReceive).target.name» = (String) «((dec.right as CastExpression).target as ChannelReceive).target.name».take();
+
+								if (__res_result.contains("&quot;")) {
+									String tmp = __res_result.replaceAll("&quot;", "\"");
+									__res_result = tmp;
+								}
+																
 								HashMap «dec.name» = new Gson().fromJson(__res_«((dec.right as CastExpression).target as ChannelReceive).target.name»,new TypeToken<HashMap<String, String>>() {}.getType());
 							'''
 						} else if ((dec.right as CastExpression).type.equals("Integer")) {
@@ -1091,7 +1116,7 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 	
-	def generateConstantDeclaration(ConstantDeclaration dec, String scope) {//DA MODIFICARE ASSOLUTAMENTE FATTO SOLO PER FAR FUNZIONARE JS
+	def generateConstantDeclaration(ConstantDeclaration dec, String scope) { // need to be checked and modified
 		if (dec.right instanceof NameObjectDef){ 
 				typeSystem.get(scope).put(dec.name, "HashMap")
 				var s = '''static HashMap<Object,Object> «dec.name» = new HashMap<Object,Object>();
@@ -1221,137 +1246,136 @@ class FLYGenerator extends AbstractGenerator {
 		}
 	}
 		
-		def initialiseConstant(ConstantDeclaration dec,String scope) {
-			if (dec.right instanceof NameObjectDef){ 
-				typeSystem.get(scope).put(dec.name, "HashMap")
-				var s = '''
-				'''
-				var i = 0;
-				for (f : (dec.right as NameObjectDef).features) {
-					if (f.feature != null) {
-						typeSystem.get(scope).put(dec.name + "." + f.feature,
-							valuateArithmeticExpression(f.value, scope))
-						s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value,scope)»);
-						'''
-					} else {
-						typeSystem.get(scope).put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value, scope))
-						s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value,scope)»);
-						'''
-						i++
-					}
-
+	def initialiseConstant(ConstantDeclaration dec,String scope) {
+		if (dec.right instanceof NameObjectDef){ 
+			typeSystem.get(scope).put(dec.name, "HashMap")
+			var s = '''
+			'''
+			var i = 0;
+			for (f : (dec.right as NameObjectDef).features) {
+				if (f.feature != null) {
+					typeSystem.get(scope).put(dec.name + "." + f.feature,
+						valuateArithmeticExpression(f.value, scope))
+					s = s + '''«dec.name».put("«f.feature»",«generateArithmeticExpression(f.value,scope)»);
+					'''
+				} else {
+					typeSystem.get(scope).put(dec.name + "[" + i + "]", valuateArithmeticExpression(f.value, scope))
+					s = s + '''«dec.name».put(«i»,«generateArithmeticExpression(f.value,scope)»);
+					'''
+					i++
 				}
-				return s			
-		}
-		}
-	
-def deployFileOnCloud(VariableDeclaration dec,long id) {					
-	var env = (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s;
-	if((dec.right as DeclarationObject).features.get(1).value_f != null){
-		var path = (dec.right as DeclarationObject).features.get(1).value_f
-		switch (env) {
-			case "aws": 	
-				return '''
-					if(!__s3_«dec.environment.get(0).name».doesBucketExist("bucket-"+__id_execution)){
-						__s3_«dec.environment.get(0).name».createBucket("bucket-"+__id_execution);
-					}
-					ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
-					List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
-					Boolean __exists_«id»=false;
-					for (S3ObjectSummary os: __result_objects_«id») {
-					    if(os.getKey().equals(«path.name».substring(«path.name».lastIndexOf("/")+1))){
-					    	__exists_«id» = true;
-					    	break;
-					    }
-					}
-					if(!__exists_«id»){
-						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name».substring(«path.name».lastIndexOf("/")+1) , new File(«path.name»));
-						__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-						__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
-					}
-				'''
-			case "aws-debug": 	
-				return '''
-					if(!__s3_«dec.environment.get(0).name».doesBucketExist("bucket-"+__id_execution)){
-						__s3_«dec.environment.get(0).name».createBucket("bucket-"+__id_execution);
-					}
-					ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
-					List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
-					Boolean __exists_«id»=false;
-					for (S3ObjectSummary os: __result_objects_«id») {
-					    if(os.getKey().equals(«path.name»)){
-					    	__exists_«id» = true;
-					    	break;
-					    }
-					}
-					if(!__exists_«id»){
-						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name» , new File(«path.name»));
-						__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-						__s3.putObject(__putObjectRequest);
-					}
-				'''
-			
-			case "azure":
-				return '''
-					«dec.environment.get(0).name».uploadFile(new File(«path.name»));
-				'''
-			default: 
-				return ''''''
-			
 			}
-	}else{
-		var path = (dec.right as DeclarationObject).features.get(1).value_s
-		if( !(path.contains("https://") || path.contains("http://")) ){ // local 
-			var name_file_ext = path.split("/").last
-			var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
-			switch (env) {
-			case "aws": 	
-				return '''
-					ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
-					List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
-					Boolean __exists_«name_file»_«id»=false;
-					for (S3ObjectSummary os: __result_objects_«id») {
-					    if(os.getKey().equals("«name_file_ext»")){
-					    	__exists_«name_file»_«id» = true;
-					    	break;
-					    }
-					}
-					if(!__exists_«name_file»_«id»){
-						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
-						__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-						__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
-					}
-				'''
-			case "aws-debug": 	
-				return '''
-					ListObjectsV2Result __result__listObjects_«id» = __s3.listObjectsV2("bucket-"+__id_execution);
-					List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
-					Boolean __exists_«name_file»_«id»=false;
-					for (S3ObjectSummary os: __result_objects_«id») {
-					    if(os.getKey().equals("«name_file_ext»")){
-					    	__exists_«name_file»_«id» = true;
-					    	break;
-					    }
-					}
-					if(!__exists_«name_file»_«id»){
-						PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
-						__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
-						__s3.putObject(__putObjectRequest);
-					}
-				'''
-			
-			case "azure":
-				return '''
-					«dec.environment.get(0).name».uploadFile(new File("«path»"));
-				'''
-			default: 
-				return ''''''
-			
-			}
+			return s			
 		}
 	}
-
-}	
+	
+	def deployFileOnCloud(VariableDeclaration dec,long id) {					
+		var env = (dec.environment.get(0).right as DeclarationObject).features.get(0).value_s;
+		if((dec.right as DeclarationObject).features.get(1).value_f != null){
+			var path = (dec.right as DeclarationObject).features.get(1).value_f
+			switch (env) {
+				case "aws": 	
+					return '''
+						if(!__s3_«dec.environment.get(0).name».doesBucketExist("bucket-"+__id_execution)){
+							__s3_«dec.environment.get(0).name».createBucket("bucket-"+__id_execution);
+						}
+						ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals(«path.name».substring(«path.name».lastIndexOf("/")+1))){
+						    	__exists_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name».substring(«path.name».lastIndexOf("/")+1) , new File(«path.name»));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
+						}
+					'''
+				case "aws-debug": 	
+					return '''
+						if(!__s3_«dec.environment.get(0).name».doesBucketExist("bucket-"+__id_execution)){
+							__s3_«dec.environment.get(0).name».createBucket("bucket-"+__id_execution);
+						}
+						ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals(«path.name»)){
+						    	__exists_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, «path.name» , new File(«path.name»));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
+						}
+					'''
+				
+				case "azure":
+					return '''
+						«dec.environment.get(0).name».uploadFile(new File(«path.name»));
+					'''
+				default: 
+					return ''''''
+				
+				}
+		}else{
+			var path = (dec.right as DeclarationObject).features.get(1).value_s
+			if( !(path.contains("https://") || path.contains("http://")) ){ // local 
+				var name_file_ext = path.split("/").last
+				var name_file = name_file_ext.substring(0,name_file_ext.indexOf('.')).replaceAll("-","_")
+				switch (env) {
+				case "aws": 	
+					return '''
+						ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«name_file»_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals("«name_file_ext»")){
+						    	__exists_«name_file»_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«name_file»_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
+						}
+					'''
+				case "aws-debug": 	
+					return '''
+						ListObjectsV2Result __result__listObjects_«id» = __s3_«dec.environment.get(0).name».listObjectsV2("bucket-"+__id_execution);
+						List<S3ObjectSummary> __result_objects_«id» = __result__listObjects_«id».getObjectSummaries();
+						Boolean __exists_«name_file»_«id»=false;
+						for (S3ObjectSummary os: __result_objects_«id») {
+						    if(os.getKey().equals("«name_file_ext»")){
+						    	__exists_«name_file»_«id» = true;
+						    	break;
+						    }
+						}
+						if(!__exists_«name_file»_«id»){
+							PutObjectRequest __putObjectRequest = new PutObjectRequest("bucket-"+__id_execution, "«name_file_ext»" , new File("«path»"));
+							__putObjectRequest.setCannedAcl(CannedAccessControlList.PublicReadWrite);
+							__s3_«dec.environment.get(0).name».putObject(__putObjectRequest);
+						}
+					'''
+				
+				case "azure":
+					return '''
+						«dec.environment.get(0).name».uploadFile(new File("«path»"));
+					'''
+				default: 
+					return ''''''
+				
+				}
+			}
+		}
+	
+	}	
 
 
 	
@@ -1368,7 +1392,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				«ENDIF»
 			'''
 		}
-		else if (env.contains("aws")) { /*PEPPE: qui c'è una region in più */
+		else if (env.contains("aws")) {
 			var threads = ((dec.right as DeclarationObject).features.get(6) as DeclarationFeature).value_t
 			var memory = ((dec.right as DeclarationObject).features.get(7) as DeclarationFeature).value_t
 			var time = ((dec.right as DeclarationObject).features.get(8) as DeclarationFeature).value_t
@@ -1432,7 +1456,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		return ''''''
 	}
 
-	def generateChanelDeclarationForCloud(VariableDeclaration dec) { // create a queue on AWS
+	def generateChanelDeclarationForCloud(VariableDeclaration dec) {
 		var env = ((dec.environment.get(0).right as DeclarationObject).features.get(0)).value_s
 		var env_name = dec.environment.get(0).name
 		var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
@@ -1941,7 +1965,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			s = '''
 				final List<Future<Object>> «call.target.name»_«func_ID»_return = new ArrayList<Future<Object>>();
 			'''
-			if (call.isIsAsync && call.isIs_thenall) { // chiamata asincrona con thenall
+			if (call.isIsAsync && call.isIs_thenall) { // asynchronous call with thenall
 				s += '''
 					final AtomicInteger __count = new AtomicInteger(0);
 				'''
@@ -1985,7 +2009,6 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 					null &&
 				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
 					equals("Table")) { // f_index is a reference to a Table
-			// if (call.isIsAsync && call.isIs_thenall) {
 				s += '''
 					final int __numThread = (Integer) __fly_environment.get("«call.environment.name»").get("nthread");
 					ArrayList<Table> __list_data_«call.target.name» = new ArrayList<Table>();
@@ -2051,7 +2074,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name) !=
 					null &&
 				typeSystem.get(scope).get(((call.input as FunctionInput).f_index as VariableLiteral).variable.name).
-					equals("File")) { // f_index is a File txt	
+					equals("File")) { // f_index is a txt file	
 					s+='''
 						final int __numThread = (Integer) __fly_environment.get("«call.environment.name»").get("nthread");
 						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name» = new ArrayList<StringBuilder>();
@@ -2168,7 +2191,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 						'''
 					} else if(call.input.f_index instanceof VariableLiteral &&
 						typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Matrix")){
-							if(call.input.split.equals("row")){ //row
+							if(call.input.split.equals("row")){ 
 								s+='''
 								int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
 								ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
@@ -2314,7 +2337,6 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		var ret = ''''''
 		if (call.input.isIs_for_index) {
 			
-			//create the termination SQS queue 
 			ret+='''
 				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
 			'''
@@ -2421,95 +2443,94 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			}else if(call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Directory")){
 				ret+='''
-				int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-				ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-				int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
-				for(String __tmp_line: «(call.input.f_index as VariableLiteral).variable.name».list()){
-					__tmp_line="http://bucket-"+__id_execution+".s3."+__fly_environment.get("«cred»").get("region")+".amazonaws.com/"+__tmp_line;
-					try{
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-					}catch(Exception e){
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-					}
-					__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
-				}
-				for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
-					final int __i_f = __i;
-					Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
-						@Override
-						public Object call() throws Exception {
-							// TODO Auto-generated method stub
-							//creare la stringa 
-							String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
-							__lambda_«cred».invoke(new InvokeRequest()
-								.withInvocationType("Event") 
-								.withFunctionName("«call.target.name»_"+__id_execution)
-								.withPayload(__s_temp));
-							return null;
+					int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+					ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+					int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
+					for(String __tmp_line: «(call.input.f_index as VariableLiteral).variable.name».list()){
+						__tmp_line="http://bucket-"+__id_execution+".s3."+__fly_environment.get("«cred»").get("region")+".amazonaws.com/"+__tmp_line;
+						try{
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}catch(Exception e){
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
 						}
-					});
-				__sync_list_«call.target.name»_«func_ID».add(f);
-				}
+						__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
+					}
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+						final int __i_f = __i;
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								// TODO Auto-generated method stub
+								//creare la stringa 
+								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+								__lambda_«cred».invoke(new InvokeRequest()
+									.withInvocationType("Event") 
+									.withFunctionName("«call.target.name»_"+__id_execution)
+									.withPayload(__s_temp));
+								return null;
+							}
+						});
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					}
 				'''	
 				
 			}else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Array")){
 					ret+='''
-					int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-					ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-					
+						int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
 					'''	
 			}else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Matrix")){
 					if(call.input.split.equals("row")){ //row
 						ret+='''
-						int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-						int __current_row_«(call.input.f_index as VariableLiteral).variable.name» = 0;
-						int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
-						for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
-							int __n_rows =  __rows/__num_proc_«call.target.name»_«func_ID»;
-							if(__rows%__num_proc_«call.target.name»_«func_ID» !=0 && __i< __rows%__num_proc_«call.target.name»_«func_ID» ){
-								__n_rows++;
-							}
-							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
-							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"rows\":"+__n_rows+",\"cols\":"+«(call.input.f_index as VariableLiteral).variable.name»[0].length+",\"values\":[");
-							for(int __j=__current_row_«(call.input.f_index as VariableLiteral).variable.name»; __j<__current_row_«(call.input.f_index as VariableLiteral).variable.name»+__n_rows;__j++){
-								for(int __z = 0; __z<«(call.input.f_index as VariableLiteral).variable.name»[__j].length;__z++){
-									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"x\":"+__j+",\"y\":"+__z+",\"value\":"+«(call.input.f_index as VariableLiteral).variable.name»[__j][__z]+"},");
+							int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+							ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+							int __current_row_«(call.input.f_index as VariableLiteral).variable.name» = 0;
+							int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
+							for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+								int __n_rows =  __rows/__num_proc_«call.target.name»_«func_ID»;
+								if(__rows%__num_proc_«call.target.name»_«func_ID» !=0 && __i< __rows%__num_proc_«call.target.name»_«func_ID» ){
+									__n_rows++;
 								}
-								if(__j == __current_row_«(call.input.f_index as VariableLiteral).variable.name» + __n_rows-1) {
-									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).deleteCharAt(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).length()-1);
-									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("]}");
-								}
-							}
-							__current_row_«(call.input.f_index as VariableLiteral).variable.name»+=__n_rows;
-						}
-						for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
-								final int __i_f = __i;
-								Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
-									@Override
-									public Object call() throws Exception {
-										// TODO Auto-generated method stub
-										//creare la stringa 
-										String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
-										__lambda_«cred».invoke(new InvokeRequest()
-											.withInvocationType("Event") 
-											.withFunctionName("«call.target.name»_"+__id_execution)
-											.withPayload(__s_temp));
-										return null;
+								__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
+								__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"rows\":"+__n_rows+",\"cols\":"+«(call.input.f_index as VariableLiteral).variable.name»[0].length+",\"values\":[");
+								for(int __j=__current_row_«(call.input.f_index as VariableLiteral).variable.name»; __j<__current_row_«(call.input.f_index as VariableLiteral).variable.name»+__n_rows;__j++){
+									for(int __z = 0; __z<«(call.input.f_index as VariableLiteral).variable.name»[__j].length;__z++){
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"x\":"+__j+",\"y\":"+__z+",\"value\":"+«(call.input.f_index as VariableLiteral).variable.name»[__j][__z]+"},");
 									}
-								});
-							__sync_list_«call.target.name»_«func_ID».add(f);
+									if(__j == __current_row_«(call.input.f_index as VariableLiteral).variable.name» + __n_rows-1) {
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).deleteCharAt(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).length()-1);
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("]}");
+									}
+								}
+								__current_row_«(call.input.f_index as VariableLiteral).variable.name»+=__n_rows;
 							}
+							for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+									final int __i_f = __i;
+									Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+										@Override
+										public Object call() throws Exception {
+											// TODO Auto-generated method stub
+											//creare la stringa 
+											String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+											__lambda_«cred».invoke(new InvokeRequest()
+												.withInvocationType("Event") 
+												.withFunctionName("«call.target.name»_"+__id_execution)
+												.withPayload(__s_temp));
+											return null;
+										}
+									});
+								__sync_list_«call.target.name»_«func_ID».add(f);
+								}
 						'''
 					}else if(call.input.split.equals("col")){ //col
 						ret+='''
-						int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+							int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+							ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
 						
 						'''	
 					}else{ //square TODO: implement square partition
@@ -2529,16 +2550,17 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-			}'''
+			}
+		'''
 		
 		if(!async){ 
 			ret+='''
-			int __messagges_«call.target.name»_«func_ID» = 0;
-			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
-				__termination_«call.target.name»_ch.poll();
-				__messagges_«call.target.name»_«func_ID»++;
-			}
-			__wait_on_termination_«call.target.name»=false;
+				int __messagges_«call.target.name»_«func_ID» = 0;
+				while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
+					__termination_«call.target.name»_ch.poll();
+					__messagges_«call.target.name»_«func_ID»++;
+				}
+				__wait_on_termination_«call.target.name»=false;
 			'''
 		}
 		// manage the callback
@@ -2561,7 +2583,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		var ret = ''''''
 		if (call.input.isIs_for_index) {
 			
-			//create the termination SQS queue 
+			//create the termination queue 
 			ret+='''
 				«cred».createQueue("termination-«call.target.name»-"+__id_execution);
 				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
@@ -2660,33 +2682,33 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 			}else if(call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Directory")){
 				ret+='''
-				int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-				ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-				int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
-				for(String __tmp_line: «(call.input.f_index as VariableLiteral).variable.name».list()){
-					//__tmp_line="https://flysa+"+__id_execution+".blob.core.windows.net/bucket-"+__id_execution+"/"+__tmp_line;
-					try{
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-					}catch(Exception e){
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
-						__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
-					}
-					__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
-				}
-				for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
-					final int __i_f = __i;
-					Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
-						@Override
-						public Object call() throws Exception {
-							String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
-							«cred».invokeFunction("«call.target.name»",__s_temp);
-							return null;
+					int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
+					ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+					int __temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = 0;
+					for(String __tmp_line: «(call.input.f_index as VariableLiteral).variable.name».list()){
+						//__tmp_line="https://flysa+"+__id_execution+".blob.core.windows.net/bucket-"+__id_execution+"/"+__tmp_line;
+						try{
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
+						}catch(Exception e){
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»,new StringBuilder());
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append(__tmp_line);
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» % __num_proc_«call.target.name»_«func_ID»).append("\n");
 						}
-					});
-				__sync_list_«call.target.name»_«func_ID».add(f);
-				}
+						__temp_i_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID»++;
+					}
+					for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+						final int __i_f = __i;
+						Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+							@Override
+							public Object call() throws Exception {
+								String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+								«cred».invokeFunction("«call.target.name»",__s_temp);
+								return null;
+							}
+						});
+					__sync_list_«call.target.name»_«func_ID».add(f);
+					}
 				'''	
 			}else if(call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).equals("Array")){
@@ -2708,16 +2730,17 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-			}'''
+			}
+		'''
 		
 		if(!async){ 
 			ret+='''
-			int __messagges_«call.target.name»_«func_ID» = 0;
-			while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
-				__termination_«call.target.name»_ch.poll();
-				__messagges_«call.target.name»_«func_ID»++;
-			}
-			__wait_on_termination_«call.target.name»=false;
+				int __messagges_«call.target.name»_«func_ID» = 0;
+				while(__messagges_«call.target.name»_«func_ID»!=__num_proc_«call.target.name»_«func_ID») {
+					__termination_«call.target.name»_ch.poll();
+					__messagges_«call.target.name»_«func_ID»++;
+				}
+				__wait_on_termination_«call.target.name»=false;
 			'''
 		}
 		// manage the callback
@@ -3068,14 +3091,14 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		var returnExp = checkReturn(definition.body) 
 		
 		var s = '''
-				protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
-				«FOR el : definition.body.expressions»
-				«generateExpression(el,definition.name)»
-				«ENDFOR»
-				«IF returnExp == null»
-				return null;
-				«ENDIF»
-				}
+			protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+			«FOR el : definition.body.expressions»
+			«generateExpression(el,definition.name)»
+			«ENDFOR»
+			«IF returnExp == null»
+			return null;
+			«ENDIF»
+			}
 				
 		'''
 		println("generate function "+ definition.name)
@@ -3084,11 +3107,11 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 		println(definition.name)
 		if (definition.body.expressions.filter(NativeExpression).length !=0)
 			s = '''
-			protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
-			
-			return null;
-			
-			} 
+				protected static «IF returnExp != null» «valuateArithmeticExpression(returnExp.expression,definition.name)»«ELSE» Object«ENDIF» «definition.name»(«FOR params : definition.parameters»«getParameterType(definition.name,params,definition.parameters.indexOf(params))» «(params as VariableDeclaration).name»«IF(!params.equals(definition.parameters.last))», «ENDIF»«ENDFOR»)throws Exception{
+				
+				return null;
+				
+				} 
 			'''
 		return s
 	}
@@ -3365,7 +3388,7 @@ def deployFileOnCloud(VariableDeclaration dec,long id) {
 							return "Table"
 						}
 					}
-				} else if (exp.feature.equals("split")) { /*PEPPE: nella vecchia usiamo l'hashmap */
+				} else if (exp.feature.equals("split")) { 
 					return "String[]"
 				} else if (exp.feature.contains("indexOf") || exp.feature.equals("length")) {
 					return "Integer"
