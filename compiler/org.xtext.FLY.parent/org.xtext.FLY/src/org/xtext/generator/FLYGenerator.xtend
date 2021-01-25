@@ -2585,7 +2585,6 @@ class FLYGenerator extends AbstractGenerator {
 			
 			//create the termination queue 
 			ret+='''
-				«cred».createQueue("termination-«call.target.name»-"+__id_execution);
 				ArrayList<Future<Object>> __sync_list_«call.target.name»_«func_ID» = new ArrayList<Future<Object>>();
 			'''
 			
