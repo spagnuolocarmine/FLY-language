@@ -1,1 +1,321 @@
+var local = [type="smp", nthread=4]    
 
+var aws = [type="aws", user="default", access_id_key = "", secret_access_key="", region="", language="python3.6", thread=1000, memory=3000, time_=300]
+
+require("geopy") on aws                       
+
+var start_time = time() 
+ 
+var ch = [type="channel"] on aws   
+
+var test = [type="file",name="path", path="all-problems.txt", type="txt"] 
+ 
+func create_service_time_callback(data){ 
+	native<<<
+	demands = data['demands']
+	service_time = data['service_time']
+	def service_time_callback(from_node, to_node):
+		return float(service_time) if to_node != 0 else 0.0
+	return service_time_callback
+	>>>  
+}
+
+func create_travel_time_callback(data){   
+	native <<<
+	avg_speed = data['avg_speed']
+	distances = data['distances']
+	def travel_time_callback(from_node, to_node):
+		travel_time = float(distances[from_node][to_node]) / float(avg_speed)
+		return travel_time
+	return travel_time_callback
+	>>>
+}
+
+func create_total_time_callback(service_time_callback, travel_time_callback){
+	native <<<
+	_service_time_cb = service_time_callback
+	_travel_time_cb = travel_time_callback
+	def total_time_callback(from_node, to_node):
+		service_time = float(_service_time_cb(from_node, to_node))
+		travel_time = float(_travel_time_cb(from_node, to_node))
+		return service_time + travel_time
+	return total_time_callback
+	>>>
+}
+ 
+func create_distance_callback(data) { 
+	var distances = data.distances
+	native <<<
+	def distance_callback(from_node, to_node):
+    	return distances[from_node][to_node]
+	return distance_callback 
+	>>>
+} 
+
+func create_demand_callback(data) {   
+   //Creates callback to get demands at each location.
+	native <<<
+	def demand_callback(from_node, to_node):
+		return data['demands'][from_node]
+	return demand_callback
+	>>>	
+}
+
+func add_capacity_constraints(routing, data, demand_callback) {
+    // Adds capacity constraint
+	native <<<
+	routing.AddDimensionWithVehicleCapacity(
+	    demand_callback,
+	    0, # null capacity slack
+	    data['vehicle_capacities'], # vehicle maximum capacities
+	    True, # start cumul to zero
+	    'Capacity')
+	>>>	
+}
+
+func add_distance_dimension(routing, distance_callback, maximum_distance) {
+    //Add Global Span constraint
+	native <<<
+	routing.AddDimension(
+	    distance_callback,
+	    0,  # null slack
+	    maximum_distance,
+	    True,  # start cumul to zero
+	    'Distance')
+	distance_dimension = routing.GetDimensionOrDie('Distance')
+	# Try to minimize the max distance among vehicles.
+	distance_dimension.SetGlobalSpanCostCoefficient(100)
+	>>>
+}
+
+func create_stop_callback(){   
+	native <<<
+	def stop_callback(from_node,to_node): 
+		return 1
+	return stop_callback
+	>>>
+} 
+
+func get_real_index(index,split_demands){     
+	native <<<
+	if index in split_demands.values():
+		return list(split_demands.keys())[list(split_demands.values()).index(index)] 
+	else: 
+		return index
+	>>>
+}
+
+ 
+func print_solution(data, routing, assignment,split_demands) {  
+	var plan_output = ""
+	var total_dist = 0
+	var total_v=0
+	var total_load =0
+	var total_cost=0
+	var cost_for_m = data.cost
+	native <<< 
+	for vehicle_id in range(data['num_vehicles']):
+		current_output = ''
+		index = routing.Start(vehicle_id)
+		current_output += 'Route for vehicle {0}:\n'.format(vehicle_id)
+		route_dist = 0
+		route_load = 0
+		route_time = 0
+		is_active = True
+		while not routing.IsEnd(index):
+			node_index = routing.IndexToNode(index)
+			next_node_index = routing.IndexToNode(assignment.Value(routing.NextVar(index)))
+			if node_index == next_node_index == 0:
+				is_active = False
+				break
+			else:
+				route_dist += data['distances'][node_index][next_node_index]
+				route_load += data['demands'][node_index]
+				route_time += data['total_times'](node_index, next_node_index)
+				current_output += ' {0} Load({1}) -> '.format(get_real_index(node_index,split_demands), route_load)
+				index = assignment.Value(routing.NextVar(index))
+		node_index = routing.IndexToNode(index)
+		if is_active:
+			total_v = total_v if route_dist == 0 else total_v + 1
+			total_load += route_load
+			total_dist += route_dist
+			total_cost = round(total_dist * cost_for_m, 3)
+			current_output += ' {0} Load({1})\n'.format(node_index, route_load)
+			current_output += 'Distance of the route: {0} miles\n'.format(route_dist)
+			current_output += 'Load of the route: {0}\n'.format(route_load)
+			current_output += 'Time of the route: {0} minutes\n'.format(route_time)
+			if route_time >= data['max_trip_time']:
+				plan_output += 'OUT OF TIME'
+			plan_output += current_output
+	
+	plan_output += 'Total Distance of all routes: {0} miles\n'.format(total_dist) 
+	plan_output += 'Active vehicles: {}\n'.format(total_v)
+	plan_output += 'Total load: {} \n'.format(total_load)
+	plan_output += 'Total cost: {}'.format(total_cost) 
+	plan_output = data['name_istance'] + '\n' + plan_output
+	>>>
+	return plan_output 
+}
+
+ 
+func vrpc(data) {     
+	native <<<
+	from ortools.constraint_solver import pywrapcp
+	from ortools.constraint_solver import routing_enums_pb2
+	from geopy import distance	
+	>>>
+	var results={}
+	for instance in data {  
+		native <<<
+		print('instance')
+		print(instance)
+		>>>
+		var vehicle_capacity = instance[7] as Integer
+		var demands_it = instance[11] as Object
+		native <<<
+		print('demands_it')
+		print(demands_it)
+		>>>
+		var split_demands = {}
+		var j=0  
+		for d in demands_it {
+			if (d.v > vehicle_capacity){
+				split_demands[d.k] = instance[3] as Integer + j
+				j++
+			}
+		}
+		
+		var coordinates_out = instance[8] as Object
+		var coordinates_in = instance[8] as Object
+		var dist_mat_len = instance[3] as Integer + split_demands.length() 
+		var demands = Double [dist_mat_len] 
+		
+		var i = 0
+		for d in demands_it {
+			native <<<
+			if d['k'] in split_demands.keys():
+				demands[i] = vehicle_capacity
+				demands[split_demands[d['k']]]=(d['v']-vehicle_capacity)
+			else:
+				demands[i] = d['v']
+			>>>
+			i++
+		}
+		
+		native <<<
+		for k,v in split_demands.items():
+			coordinates_out[v] = coordinates_out[k]
+			coordinates_in[v] = coordinates_in[k]	
+		>>>
+
+		var distance_matrix = Double [dist_mat_len] 
+		for c1 in coordinates_out { 
+			var c1v = c1.v
+			var x1 = c1v.x as Double
+			var y1 = c1v.y as Double 
+			var i = c1.k as Integer
+			var l = Double [dist_mat_len]
+			for c2 in coordinates_in {
+				var c2v = c2.v
+				var x2 = c2v.x as Double
+				var y2 = c2v.y as Double
+				var j = c2.k as Integer
+				var d=0.0
+				native <<<
+				d = distance.distance((x1, y1), (x2, y2)).miles
+				>>>
+				l[j] = d
+			}
+			distance_matrix[i] = l
+		}
+		
+		var input_data = {} 
+		input_data.coords_map = instance[8] as Object
+		input_data.name_istance = instance[6] as String
+		input_data.distances = distance_matrix
+		input_data.num_locations = instance[3] as Integer
+		input_data.num_vehicles = instance[4] as Integer
+		input_data.depot = instance[1] as Integer
+		input_data.demands = demands
+		native <<<
+		input_data['vehicle_capacities'] = [instance[7] for _ in range(int(instance[4]))] 
+		>>>
+		input_data.max_distance = instance[2] as Double
+		var horizon = 0.0
+		native<<<
+		horizon = input_data['max_trip_time'] = instance[13]
+		>>>
+		input_data.avg_speed = instance[0] as Double
+		input_data.max_stop = instance[12] as Integer
+		input_data.service_time = instance[5] as Integer
+		input_data.cost = instance[9] as Double
+		
+		var routing = {}
+	
+		native <<<
+		routing = pywrapcp.RoutingModel(
+			input_data['num_locations'],
+			input_data['num_vehicles'],
+			input_data['depot'])
+		>>>
+		var stop_callback = create_stop_callback()
+		var distance_callback = create_distance_callback(input_data)
+		var demand_callback = create_demand_callback(input_data)
+		var service_times = create_service_time_callback(input_data)
+		var travel_times = create_travel_time_callback(input_data)
+		var total_times = create_total_time_callback(service_times, travel_times)
+	
+		native <<<
+		routing.SetArcCostEvaluatorOfAllVehicles(distance_callback)
+		>>>
+		add_capacity_constraints(routing, input_data, demand_callback)
+		add_distance_dimension(routing, distance_callback, input_data.max_distance as Integer)	  
+		var search_parameters = {}
+		var assignment = {}    
+		native <<<
+		search_parameters = pywrapcp.RoutingModel.DefaultSearchParameters()
+		search_parameters.time_limit_ms = 1000
+		search_parameters.first_solution_strategy = (
+			routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC)
+		search_parameters.local_search_operators.use_tsp_opt = True
+		search_parameters.use_light_propagation = False
+		search_parameters.log_search = False
+		search_parameters.local_search_metaheuristic = (
+			routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH)
+
+		input_data['total_times'] = total_times      
+
+		routing.AddDimension(total_times,  # total time function callback
+							 horizon, 
+							 horizon,
+							 True,   
+							 "Time")
+		routing.AddDimension(stop_callback,
+							input_data['max_stop'], 
+							input_data['max_stop'],
+							True,
+							"Stops")
+		assignment = routing.SolveWithParameters(search_parameters)
+		if assignment:
+			results[input_data['name_istance']] = print_solution(input_data, routing, assignment,split_demands)
+		else:
+			results[input_data['name_istance']] = "No solution found"
+		>>>
+		}
+	ch!results on aws
+}  
+
+func estimate() {    
+	for i in [0:1000] {  
+		var e = ch ? as Object
+		for r in e{
+			println("Instance Name: "+r.k)
+			println(r.v) 
+		}
+		//println e
+	} 
+}
+
+fly vrpc in test on aws thenall estimate 
+println("elapsed time "+time(start_time))
+ch.close()
