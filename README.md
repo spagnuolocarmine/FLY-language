@@ -9,7 +9,7 @@
 
 # FLY a Domain Specific Language for scientific computing on the Multi Cloud 
 
-FLY is a parallel work-flow scripting imperative language inspired by functional languages peculiarities TEST.
+FLY is a parallel work-flow scripting imperative language inspired by functional languages peculiarities.
 FLY uses two type of run-time environment: the local machine and/or cloud infrastructure. FLY perceives a cloud computing infrastructure as a parallel computing architecture on which it is possible to execute some parts of its execution flow in parallel.
 
 FLY main goals are:
