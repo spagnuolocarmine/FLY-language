@@ -208,144 +208,154 @@ class FLYGenerator extends AbstractGenerator {
 	import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
 	import com.amazonaws.services.sqs.model.CreateQueueRequest;
 	import com.amazonaws.services.sqs.model.DeleteQueueRequest;
+	import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
 	import com.amazonaws.services.sqs.model.Message;
+	import com.amazonaws.services.sqs.model.QueueAttributeName;
 	import com.amazonaws.services.sqs.model.ReceiveMessageRequest;
 	import com.amazonaws.services.sqs.model.ReceiveMessageResult;
 	import com.amazonaws.services.sqs.model.SendMessageRequest;
 	import isislab.awsclient.AWSClient;
 	«ENDIF»
 		
-		public class «filenameVmCluster» {
+	public class «filenameVmCluster» {
+				
+		static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
+		static long  __id_execution =  System.currentTimeMillis();
+		
+		«FOR element : (resource.allContents.toIterable.filter(Expression))»
+			«IF element instanceof VariableDeclaration»
+				«IF element.right instanceof DeclarationObject
+					&& (!(element.right as DeclarationObject).features.get(0).value_s.equals("aws")) //all aws usual declarations are not needed
+					&& ( (element.right as DeclarationObject).features.get(0).value_s.equals("channel") || list_environment.contains((element.right as DeclarationObject).features.get(0).value_s) )»
+					«generateVariableDeclaration(element,"main")»
+				«ELSEIF  element.right instanceof DeclarationObject
+					&& (element.right as DeclarationObject).features.get(0).value_s.equals("aws")»
+					static BasicAWSCredentials creds = new BasicAWSCredentials("«(element.right as DeclarationObject).features.get(2).value_s»", "«(element.right as DeclarationObject).features.get(3).value_s»");
+					static AWSClient «element.name» = null;
 					
-			static HashMap<String,HashMap<String, Object>> __fly_environment = new HashMap<String,HashMap<String,Object>>();
-			static long  __id_execution =  System.currentTimeMillis();
-			
-			«FOR element : (resource.allContents.toIterable.filter(Expression))»
-				«IF element instanceof VariableDeclaration»
-					«IF element.right instanceof DeclarationObject
-						&& (!(element.right as DeclarationObject).features.get(0).value_s.equals("aws")) //all aws usual declarations are not needed
-						&& ( (element.right as DeclarationObject).features.get(0).value_s.equals("channel") || list_environment.contains((element.right as DeclarationObject).features.get(0).value_s) )»
-						«generateVariableDeclaration(element,"main")»
-					«ELSEIF  element.right instanceof DeclarationObject
-						&& (element.right as DeclarationObject).features.get(0).value_s.equals("aws")»
-						static BasicAWSCredentials creds = new BasicAWSCredentials("«(element.right as DeclarationObject).features.get(2).value_s»", "«(element.right as DeclarationObject).features.get(3).value_s»");
-						static AWSClient «element.name» = null;
+					static AmazonSQS __sqs_«element.name» = AmazonSQSClientBuilder.standard()
+									.withRegion("«(element.right as DeclarationObject).features.get(4).value_s»")							 
+									.withCredentials(new AWSStaticCredentialsProvider(creds))
+									.build();
+									
+				«ENDIF»
+			«ENDIF»
+			«IF element instanceof ConstantDeclaration»
+				«generateConstantDeclaration(element,"main")»	
+			«ENDIF»
+		«ENDFOR»
+				
+		public static void main(String[] args) throws Exception{
+				«FOR element : (resource.allContents.toIterable.filter(Expression).filter(ConstantDeclaration))»
+					«initialiseConstant(element,"main")»
+				«ENDFOR»
+				
+				«FOR element : resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject]
+				.filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]
+				.filter[(right as DeclarationObject).features.get(0).value_s.equals("vm-cluster") ||
+					(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
+					«setEnvironmentDeclarationInfo(element)»
+				«ENDFOR»
+				
+				
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[((right as DeclarationObject).features.get(0).value_s.equals("azure"))]»
+					String «element.name»_terminationQueue = "ch-termination-"+__id_execution;
+
+					«element.name» = new AzureClient("«((element.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»",
+						"«((element.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s»",
+						__id_execution+"",
+						"«((element.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s»",
+						«element.name»_terminationQueue);
+					
+					«element.name».VMClusterInit();
+					«element.name».setupQueue(«element.name»_terminationQueue);
+				«ENDFOR»
+				
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[((right as DeclarationObject).features.get(0).value_s.equals("aws"))]»
+					__sqs_«element.name».createQueue(new CreateQueueRequest("ch-termination-"+__id_execution));
+					String «element.name»_terminationQueue = __sqs_«element.name».getQueueUrl("ch-termination-"+__id_execution).getQueueUrl();					
+					«element.name» = new AWSClient(creds, "«(element.right as DeclarationObject).features.get(4).value_s»", «element.name»_terminationQueue);
+				«ENDFOR»
+								
+				String purchasingOption = (String) __fly_environment.get("«vm_cluster_name»").get("purchasing_option");
+				String vmTypeSize = (String) __fly_environment.get("«vm_cluster_name»").get("vm_type_size");
+				boolean persistent = Boolean.parseBoolean((String) __fly_environment.get("«vm_cluster_name»").get("persistent"));
+				int vmCount = Integer.parseInt((String) __fly_environment.get("«vm_cluster_name»").get("count"));
+				
+				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)»
+
+					«element.environment.environment.get(0).name».zipAndUploadCurrentProject();
+					
+					int vmsCreatedCount = «element.environment.environment.get(0).name».launchVMCluster(vmTypeSize, purchasingOption, persistent, vmCount);
+					
+					if ( vmsCreatedCount != 0) {
+						System.out.print("\n\u27A4 Waiting for virtual machines boot script to complete...");
+						«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
+							while («element.environment.environment.get(0).name».getQueueLength(«element.environment.environment.get(0).name»_terminationQueue) != vmsCreatedCount);
+						«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
+							while ( Long.parseLong(__sqs_«element.environment.environment.get(0).name».getQueueAttributes(new GetQueueAttributesRequest().withQueueUrl(«element.environment.environment.get(0).name»_terminationQueue)
+														.withAttributeNames(QueueAttributeName.ApproximateNumberOfMessages.toString())).getAttributes().get("ApproximateNumberOfMessages")) != vmsCreatedCount);
+						«ENDIF»
+						System.out.println("Done");
+					}
+					if(vmsCreatedCount != vmCount){
+						if ( vmsCreatedCount > 0) «element.environment.environment.get(0).name».downloadFLYProjectonVMCluster();
 						
-						static AmazonSQS __sqs_«element.name» = AmazonSQSClientBuilder.standard()
-										.withRegion("«(element.right as DeclarationObject).features.get(4).value_s»")							 
-										.withCredentials(new AWSStaticCredentialsProvider(creds))
-										.build();
-										
-					«ENDIF»
-				«ENDIF»
-				«IF element instanceof ConstantDeclaration»
-					«generateConstantDeclaration(element,"main")»	
-				«ENDIF»
-			«ENDFOR»
-			static LinkedTransferQueue<Object> chTermination = new LinkedTransferQueue<Object>();
-			static Boolean __wait_on_ch_termination = true;
+						System.out.print("\n\u27A4 Waiting for download project on VM CLuster to complete...");
+						«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
+							while («element.environment.environment.get(0).name».getQueueLength(«element.environment.environment.get(0).name»_terminationQueue) != (vmCount+vmsCreatedCount));
+						«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
+							while ( Long.parseLong(__sqs_«element.environment.environment.get(0).name».getQueueAttributes(new GetQueueAttributesRequest().withQueueUrl(«element.environment.environment.get(0).name»_terminationQueue)
+														.withAttributeNames(QueueAttributeName.ApproximateNumberOfMessages.toString())).getAttributes().get("ApproximateNumberOfMessages")) != (vmCount+vmsCreatedCount));
+						«ENDIF»
+					}
+					System.out.println("Done");
 					
-			public static void main(String[] args) throws Exception{
-					«FOR element : (resource.allContents.toIterable.filter(Expression).filter(ConstantDeclaration))»
-						«initialiseConstant(element,"main")»
-					«ENDFOR»
+					«element.environment.environment.get(0).name».buildFLYProjectOnVMCluster();
 					
-					«FOR element : resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject]
-					.filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s)]
-					.filter[(right as DeclarationObject).features.get(0).value_s.equals("vm-cluster") ||
-						(right as DeclarationObject).features.get(0).value_s.equals("smp")]»
-						«setEnvironmentDeclarationInfo(element)»
-					«ENDFOR»
-					
-					«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
-					filter[((right as DeclarationObject).features.get(0).value_s.equals("azure"))]»
-						«element.name» = new AzureClient("«((element.right as DeclarationObject).features.get(1) as DeclarationFeature).value_s»",
-							"«((element.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s»",
-							"«((element.right as DeclarationObject).features.get(3) as DeclarationFeature).value_s»",
-							"«((element.right as DeclarationObject).features.get(4) as DeclarationFeature).value_s»",
-							__id_execution+"",
-							"«((element.right as DeclarationObject).features.get(5) as DeclarationFeature).value_s»");
-					«ENDFOR»
-					
-					String purchasingOption = (String) __fly_environment.get("«vm_cluster_name»").get("purchasing_option");
-					String vmTypeSize = (String) __fly_environment.get("«vm_cluster_name»").get("vm_type_size");
-					boolean persistent = Boolean.parseBoolean((String) __fly_environment.get("«vm_cluster_name»").get("persistent"));
-					int count = Integer.parseInt((String) __fly_environment.get("«vm_cluster_name»").get("count"));
-					
-					«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
-					filter[((right as DeclarationObject).features.get(0).value_s.equals("aws"))]»
-						«element.name» = new AWSClient(creds, "«(element.right as DeclarationObject).features.get(4).value_s»");
-					«ENDFOR»
-
-					«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)»
-					
-					«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
-						«element.environment.environment.get(0).name».VMClusterInit();
-					«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
-						//termination queue
-						__sqs_«element.environment.environment.get(0).name».createQueue(new CreateQueueRequest("ch-termination-"+__id_execution));
-
-						String queueUrl = __sqs_«element.environment.environment.get(0).name».getQueueUrl("ch-termination-"+__id_execution).getQueueUrl();					
-					«ENDIF»
-
-					String projectIdentifier = «element.environment.environment.get(0).name».zipAndUploadCurrentProject();
-					
-					«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
-						«element.environment.environment.get(0).name».launchVMCluster(vmTypeSize, purchasingOption, persistent, count, projectIdentifier);
-					«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
-						List<Instance> clusterInstances = «element.environment.environment.get(0).name».launchVMCluster(vmTypeSize, purchasingOption, persistent, count, queueUrl);
-					«ENDIF»
-					
-					//Wait for boot script to complete or downaloding complete(if cluster already existent)
-					waitForTerminationMessages();
-					
-					while (chTermination.size() != count);
-					__wait_on_ch_termination = false;
-					chTermination.clear();
-					
-					//Project Building
-					«element.environment.environment.get(0).name».buildFLYProjectOnVMCluster(clusterInstances, projectIdentifier, queueUrl);
-					
-					//Wait for building to complete
-					__wait_on_ch_termination = true;
-					waitForTerminationMessages();
-					
-					while (chTermination.size() != count);
-					__wait_on_ch_termination = false;
-					chTermination.clear();
+					System.out.print("\n\u27A4 Waiting for building project on VM CLuster to complete...");
+					if(vmsCreatedCount != vmCount){
+						«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
+							while («element.environment.environment.get(0).name».getQueueLength(«element.environment.environment.get(0).name»_terminationQueue) != ( (vmCount*2)+vmsCreatedCount));
+						«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
+							while ( Long.parseLong(__sqs_«element.environment.environment.get(0).name».getQueueAttributes(new GetQueueAttributesRequest().withQueueUrl(«element.environment.environment.get(0).name»_terminationQueue)
+														.withAttributeNames(QueueAttributeName.ApproximateNumberOfMessages.toString())).getAttributes().get("ApproximateNumberOfMessages")) != ( (vmCount*2)+vmsCreatedCount));
+						«ENDIF»
+					} else {
+						«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
+							while («element.environment.environment.get(0).name».getQueueLength(«element.environment.environment.get(0).name»_terminationQueue) != (vmCount*2));
+						«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
+							while ( Long.parseLong(__sqs_«element.environment.environment.get(0).name».getQueueAttributes(new GetQueueAttributesRequest().withQueueUrl(«element.environment.environment.get(0).name»_terminationQueue)
+														.withAttributeNames(QueueAttributeName.ApproximateNumberOfMessages.toString())).getAttributes().get("ApproximateNumberOfMessages")) != (vmCount*2));
+						«ENDIF»
+					}
+					System.out.println("Done");
 									
 					«workloadDistributionOnVMCluster(element,"main", ((element.environment.right as DeclarationObject).features.get(4) as DeclarationFeature).value_t)»
 					
-					«IF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("azure")»
-						«element.environment.environment.get(0).name».executeFLYonVMCluster(dimPortions,
-														displ,
-														numberOfFunctions,
-														projectIdentifier,
-														__id_execution);
-					«ELSEIF ((element.environment.environment.get(0).right as DeclarationObject).features.get(0) as DeclarationFeature).value_s.equals("aws")»
-						«element.environment.environment.get(0).name».executeFLYonVMCluster(clusterInstances,
-														dimPortions,
-														displ,
-														numberOfFunctions,
-														projectIdentifier,
-														__id_execution,
-														queueUrl);					
-					«ENDIF»
-										
 					«FOR el: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 					filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
 						«IF !(el.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp")»
-						«generateChanelDeclarationForCloud(el)»
+						«generateChannelWaitingResultsForVMCluster(el)»
 						«ENDIF»
 					«ENDFOR»
-					
+										
+					«element.environment.environment.get(0).name».executeFLYonVMCluster(dimPortions,
+													displ,
+													numberOfFunctions,
+													__id_execution);
 
-					//Wait until all results from FLY execution are published		
 					«FOR el: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
 					filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
 						«IF !(el.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp")»
-						while («el.name».size() != numberOfFunctions);
-						__wait_on_«el.name»=false;
+							System.out.print("\n\u27A4 Waiting for FLY execution to complete...");
+							while («el.name».size() != numberOfFunctions);
+							__wait_on_«el.name» = false;
+							System.out.println("Done");
 						«ENDIF»
 					«ENDFOR»
 					
@@ -355,90 +365,83 @@ class FLYGenerator extends AbstractGenerator {
 					
 					«element.environment.environment.get(0).name».deleteResourcesAllocated();
 
-					«ENDFOR»
-					
-					«FOR el: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
-					filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
-						«IF !(el.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("smp")»
-						__sqs_«el.environment.get(0).name».deleteQueue(new DeleteQueueRequest(queueUrl));
-						__sqs_«el.environment.get(0).name».deleteQueue(new DeleteQueueRequest(__sqs_«el.environment.get(0).name».getQueueUrl("«el.name»-"+__id_execution).getQueueUrl()));
-						«ENDIF»
-					«ENDFOR»
-					
-					«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
-					filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
-						&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))]»
-						__thread_pool_«element.name».shutdown();
-					«ENDFOR»
-					
-					System.exit(0);
-				}
-				
-				«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
-					«IF checkBlock(element.eContainer)==false»
-						«generateFunctionDefinition(element)»
-					«ENDIF»	
 				«ENDFOR»
 				
-				«FOR element: resource.allContents.toIterable.filter(FlyFunctionCall)»
-					private static void waitForTerminationMessages(){
-						«generateWaitingTerminationQueueForVMCluster(element)»
-					}
+				«FOR el: resource.allContents.toIterable.filter(VariableDeclaration).filter[onCloud].filter[right instanceof DeclarationObject].
+				filter[(right as DeclarationObject).features.get(0).value_s.equals("channel")]»
+					«IF (el.environment.get(0).right as DeclarationObject).features.get(0).value_s.equals("aws")»
+					__sqs_«el.environment.get(0).name».deleteQueue(new DeleteQueueRequest(«el.environment.get(0).name»_terminationQueue));
+					__sqs_«el.environment.get(0).name».deleteQueue(new DeleteQueueRequest(__sqs_«el.environment.get(0).name».getQueueUrl("«el.name»-"+__id_execution).getQueueUrl()));
+					«ENDIF»
 				«ENDFOR»
-
-			}
-	'''
-	
-	def generateWaitingTerminationQueueForVMCluster(FlyFunctionCall element) {
-			var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
-			filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0)
-			var local = local_env.name
-			var env = (element.environment.environment.get(0).right as DeclarationObject).features.get(0).value_s
-			switch env {
-				case "aws":
-					return '''
-						final String termination_queue_url = __sqs_«element.environment.environment.get(0).name».getQueueUrl("ch-termination-"+__id_execution).getQueueUrl();
-
-						for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
-							__thread_pool_«local».submit(new Callable<Object>() {
-								@Override
-								public Object call() throws Exception {
-									while(__wait_on_ch_termination) {
-										ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(termination_queue_url).
-												withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
-										ReceiveMessageResult __res = __sqs_«element.environment.environment.get(0).name».receiveMessage(__recmsg);
-										for(Message msg : __res.getMessages()) { 
-											chTermination.put(msg.getBody());
-											__sqs_«element.environment.environment.get(0).name».deleteMessage(termination_queue_url, msg.getReceiptHandle());
-										}
-									}
-									return null;
-								}
-							});
-						}
-						'''
-				case "azure":
-					return '''
-						TO DO
-						«element.environment.name».createQueue("termination-«element.target.name»-"+__id_execution);
-						LinkedTransferQueue<String> __termination_«element.target.name»_ch  = new LinkedTransferQueue<String>();
-						__thread_pool_«local».submit(new Callable<Object>() {
-							@Override
-							public Object call() throws Exception {
-								while(__wait_on_termination_«element.target.name») {
-									List<String> __recMsgs = «element.environment.name».peeksFromQueue("termination-«element.target.name»-"+__id_execution,10);
-									for(String msg : __recMsgs) { 
-										__termination_«element.target.name»_ch.put(msg);
-									}
-								}
-								return null;
-							}
-						});
-					'''
+				
+				«FOR element: resource.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+				filter[list_environment.contains((right as DeclarationObject).features.get(0).value_s) 
+					&& ((right as DeclarationObject).features.get(0).value_s.equals("smp"))]»
+					__thread_pool_«element.name».shutdown();
+				«ENDFOR»
+				
+				System.exit(0);
 			}
 			
-	}
+			«FOR element : resource.allContents.toIterable.filter(FunctionDefinition)»
+				«IF checkBlock(element.eContainer)==false»
+					«generateFunctionDefinition(element)»
+				«ENDIF»	
+			«ENDFOR»
+		}
+	'''
+	
+	def generateChannelWaitingResultsForVMCluster(VariableDeclaration dec) {
+		var env = ((dec.environment.get(0).right as DeclarationObject).features.get(0)).value_s
+		var env_name = dec.environment.get(0).name
+		var local_env = res.allContents.toIterable.filter(VariableDeclaration).filter[right instanceof DeclarationObject].
+			filter[(right as DeclarationObject).features.get(0).value_s.equals("smp")].get(0)
+		var local = local_env.name
+		switch env {
+			case "aws":
+			return '''
+				__sqs_«env_name».createQueue(new CreateQueueRequest("«dec.name»-"+__id_execution));
+				
+				for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+					__thread_pool_«local».submit(new Callable<Object>() {
+						@Override
+						public Object call() throws Exception {
+							while(__wait_on_«dec.name») {
+								ReceiveMessageRequest __recmsg = new ReceiveMessageRequest(__sqs_«env_name».getQueueUrl("«dec.name»-"+__id_execution).getQueueUrl()).
+										withWaitTimeSeconds(1).withMaxNumberOfMessages(10);
+								ReceiveMessageResult __res = __sqs_«env_name».receiveMessage(__recmsg);
+								for(Message msg : __res.getMessages()) { 
+									«dec.name».put(msg.getBody());
+									__sqs_«env_name».deleteMessage(__sqs_«env_name».getQueueUrl("«dec.name»-"+__id_execution).getQueueUrl(), msg.getReceiptHandle());
+								}
+							}
+							return null;
+						}
+					});
+				}
+			'''
+		case "azure":
+			return '''
+				«env_name».setupQueue("«dec.name»-"+__id_execution);
 
+				for(int __i=0;__i< (Integer)__fly_environment.get("«local»").get("nthread");__i++){ 
+					__thread_pool_«local».submit(new Callable<Object>() {
+						@Override
+						public Object call() throws Exception {
+							while(__wait_on_«dec.name») {
+								List<String> __recMsgs = «env_name».peeksFromQueue("«dec.name»-"+__id_execution,32);
+								for(String msg : __recMsgs) { 
+									«dec.name».put(msg);
+								}
+							}
+							return null;
+						}
+					});
+				}
+			'''
+			}	
+	}
 	
 	def workloadDistributionOnVMCluster(FlyFunctionCall call, String scope, int vmCount) {
 		var s = ''''''
@@ -2450,7 +2453,57 @@ class FLYGenerator extends AbstractGenerator {
 					}
 					return s
 				}
-			} 
+			}
+		}else if (expression.target.right instanceof ArrayInit){
+			if(((expression.target.right as ArrayInit).values.get(0) instanceof NumberLiteral) ||
+					((expression.target.right as ArrayInit).values.get(0) instanceof StringLiteral) ||
+					((expression.target.right as ArrayInit).values.get(0) instanceof FloatLiteral)
+				){ //array mono-dimensional	
+					if(expression.feature.equals("length")){
+						var s = expression.target.name + "." + expression.feature
+						if (t) {
+							s += ";"
+						}
+						return s
+					} else {
+						var s = expression.target.name + "." + expression.feature + "("
+						for (exp : expression.expressions) {
+							s += generateArithmeticExpression(exp, scope)
+							if (exp != expression.expressions.last()) {
+								s += ","
+							}
+						}
+						s += ")"
+						if (t) {
+							s += ";"
+						}
+						return s
+					}
+
+				} else if ((expression.target.right as ArrayInit).values.get(0) instanceof ArrayValue){ //matrix 2d
+					if(expression.feature.equals("length")){ //num of rows
+						var s = expression.target.name + "." + expression.feature
+						if (t) {
+							s += ";"
+						}
+						return s
+					} else {
+						var s = expression.target.name + "." + expression.feature + "("
+						for (exp : expression.expressions) {
+							s += generateArithmeticExpression(exp, scope)
+							if (exp != expression.expressions.last()) {
+								s += ","
+							}
+						}
+						s += ")"
+						if (t) {
+							s += ";"
+						}
+						return s
+					}
+				
+				}
+
 		}else{
 			var s = expression.target.name + "." + expression.feature + "("
 			for (exp : expression.expressions) {

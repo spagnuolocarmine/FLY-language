@@ -53,6 +53,8 @@ import java.util.Arrays
 import org.xtext.fLY.EnvironemtLiteral
 import org.xtext.fLY.DeclarationFeature
 import org.eclipse.xtext.service.AllRulesCache.AllRulesCacheAdapter
+import org.xtext.fLY.ArrayInit
+import org.xtext.fLY.ArrayValue
 
 class FLYGeneratorPython extends AbstractGenerator {
 	String name = null
@@ -325,7 +327,6 @@ class FLYGeneratorPython extends AbstractGenerator {
 	}
 
 	def generatePyExpression(Expression exp, String scope, boolean local) {
-		
 		var s = ''''''
 		if (exp instanceof ChannelSend) {
 			var env = (exp.target.environment.get(0).right as DeclarationObject).features.get(0).value_s ;//(exp.target as DeclarationObject).features.get(0).value_s;
@@ -401,8 +402,42 @@ class FLYGeneratorPython extends AbstractGenerator {
 						s += '''«exp.name» = [None] * «generatePyArithmeticExpression(row, scope, local)» * «generatePyArithmeticExpression(col, scope, local)» *«generatePyArithmeticExpression(dep, scope, local)»'''
 					}
 					
-				} 
-				else if(exp.right instanceof DeclarationObject){
+				} else if(exp.right instanceof ArrayInit){
+					
+					if(((exp.right as ArrayInit).values.get(0) instanceof NumberLiteral) ||
+					((exp.right as ArrayInit).values.get(0) instanceof StringLiteral) ||
+					((exp.right as ArrayInit).values.get(0) instanceof FloatLiteral)){ //array init
+						var real_type = valuateArithmeticExpression((exp.right as ArrayInit).values.get(0) as ArithmeticExpression,scope,local)
+	
+						typeSystem.get(scope).put(exp.name,"Array_"+real_type)
+						s += '''
+							«exp.name» = [«FOR e: (exp.right as ArrayInit).values»«generatePyArithmeticExpression(e as ArithmeticExpression,scope,local)»«IF e != (exp.right as ArrayInit).values.last »,«ENDIF»«ENDFOR»]
+						'''
+					} else if ((exp.right as ArrayInit).values.get(0) instanceof ArrayValue){ //matrix 2d
+						if(((exp.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof NumberLiteral ||
+							((exp.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof StringLiteral ||
+							((exp.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) instanceof FloatLiteral){
+							var real_type = valuateArithmeticExpression(((exp.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArithmeticExpression,scope, local)
+							var col = (((exp.right as ArrayInit).values.get(0) as ArrayValue).values.get(0) as ArrayValue).values.length
+							typeSystem.get(scope).put(exp.name,"Matrix_"+real_type+"_"+col)
+							s += '''«exp.name» = ['''
+							for (e : (exp.right as ArrayInit).values){
+								s+='''['''
+								for(e1: (e as ArrayValue).values){
+									s+=generatePyArithmeticExpression(e1 as ArithmeticExpression,scope,local)
+									if(e1!= (e as ArrayValue).values.last){
+										s+=''','''
+									}
+								}
+								s+=''']'''
+								if (e !=  (exp.right as ArrayInit).values.last){
+									s+=''','''
+								}
+							}
+							s+=''']'''
+						}	
+					}
+				} else if(exp.right instanceof DeclarationObject){
 					var type = (exp.right as DeclarationObject).features.get(0).value_s
 					
 					switch (type) {
@@ -1171,6 +1206,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 	}
 	
 	def generatePyVariableFunction(VariableFunction expression, Boolean local, String scope) {
+
 		if (expression.target.right instanceof DeclarationObject) {
 			var type = (expression.target.right as DeclarationObject).features.get(0).value_s
 			
@@ -1193,7 +1229,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				default :{
 					return generatePyArithmeticExpression(expression, scope, local)
 				}
-			} 
+			}
 		}else{
 			return generatePyArithmeticExpression(expression, scope, local)
 		}

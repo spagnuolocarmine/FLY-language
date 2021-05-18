@@ -1246,7 +1246,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 				default :{
 					return generateJsArithmeticExpression(expression, scope)
 				}
-			} 
+			}
 		}else{
 			return generateJsArithmeticExpression(expression, scope)
 		}
