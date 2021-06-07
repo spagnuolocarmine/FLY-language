@@ -102,13 +102,17 @@ class FLYGenerator extends AbstractGenerator {
 				var type_env = ((element.environment.right as DeclarationObject).features.get(0) as DeclarationFeature).value_s;
 				var async = element.isAsync;
 				if(type_env.equals("smp") && ((element.environment.right as DeclarationObject).features.length==3)){
+					// generate .java file (local)
+					fsa.generateFile(name + ".java", resource.compileJava)
 					if(((element.environment.right as DeclarationObject).features.get(2) as DeclarationFeature).value_s.contains("python")){
 						pyGen.generatePython(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 					}else{
 						jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 					}	
 				}
-				if (type_env != "smp") {
+				if ( (type_env != "smp") && (type_env != "vm-cluster")) {
+					// generate .java file (serverless)
+					fsa.generateFile(name + ".java", resource.compileJava)
 					var language =""
 					switch type_env {
 						case "aws":{
@@ -132,18 +136,13 @@ class FLYGenerator extends AbstractGenerator {
 					}
 				}
 				if(type_env.equals("vm-cluster")){
-					//Generate .java files (VM Cluster execution)
+					//Generate .java files (VM Cluster)
 					vm_cluster_name = element.environment.name
 					fsa.generateFile(filenameSingleVm + ".java", resource.compileJavaForSingleVM)
 					fsa.generateFile(filenameVmCluster + ".java", resource.compileJavaForVMCluster)
 					return
 				}
 			}
-			//Delete non necessary files from previous executions if present
-			fsa.deleteFile(filenameVmCluster + ".java")
-			fsa.deleteFile(filenameSingleVm + ".java")
-			// generate .java file (local or serverless execution)
-			fsa.generateFile(name + ".java", resource.compileJava)
 		}
 	}
 	
@@ -2454,7 +2453,8 @@ class FLYGenerator extends AbstractGenerator {
 					return s
 				}
 			}
-		}else if (expression.target.right instanceof ArrayInit){
+		}else if (expression.target.right instanceof ArrayInit ){
+					
 			if(((expression.target.right as ArrayInit).values.get(0) instanceof NumberLiteral) ||
 					((expression.target.right as ArrayInit).values.get(0) instanceof StringLiteral) ||
 					((expression.target.right as ArrayInit).values.get(0) instanceof FloatLiteral)
@@ -2500,10 +2500,32 @@ class FLYGenerator extends AbstractGenerator {
 							s += ";"
 						}
 						return s
-					}
-				
+					}	
 				}
-
+				
+		} else if (expression.target instanceof VariableDeclaration &&
+				(typeSystem.get(scope).get((expression.target as VariableDeclaration).name).contains("Array")
+					|| typeSystem.get(scope).get((expression.target as VariableDeclaration).name).contains("Matrix"))) { //Array or Matrix variable
+					if(expression.feature.equals("length")){
+						var s = expression.target.name + "." + expression.feature
+						if (t) {
+							s += ";"
+						}
+						return s
+					} else {
+						var s = expression.target.name + "." + expression.feature + "("
+						for (exp : expression.expressions) {
+							s += generateArithmeticExpression(exp, scope)
+							if (exp != expression.expressions.last()) {
+								s += ","
+							}
+						}
+						s += ")"
+						if (t) {
+							s += ";"
+						}
+						return s
+					}
 		}else{
 			var s = expression.target.name + "." + expression.feature + "("
 			for (exp : expression.expressions) {
@@ -3169,6 +3191,39 @@ class FLYGenerator extends AbstractGenerator {
 						}
 						'''
 					} else if(call.input.f_index instanceof VariableLiteral &&
+						typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Array")){
+							// array variable handling
+							   s += '''
+								int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
+								ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+								int __arr_length = «(call.input.f_index as VariableLiteral).variable.name».length;
+								
+								int[] dimPortions = new int[__num_proc_«call.target.name»_«func_ID»]; 
+								int[] displ = new int[__num_proc_«call.target.name»_«func_ID»]; 
+								int offset = 0;
+								
+								for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+									dimPortions[__i] = (__arr_length / __num_proc_«call.target.name»_«func_ID») +
+										((__i < (__arr_length % __num_proc_«call.target.name»_«func_ID»)) ? 1 : 0);
+									displ[__i] = offset;								
+									offset += dimPortions[__i];
+
+									final int i = __i;
+									Future<Object> _f = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
+												
+										public Object call() throws Exception {
+											
+											Object __ret = «call.target.name»(Arrays.copyOfRange(«(call.input.f_index as VariableLiteral).variable.name»,displ[i], displ[i]+dimPortions[i] ));
+											«IF call.isIs_then»
+												«call.then.name»();
+											«ENDIF»					
+											return __ret;
+										}
+									});
+									«call.target.name»_«func_ID»_return.add(_f);
+								}								
+							'''
+					} else if(call.input.f_index instanceof VariableLiteral &&
 						typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Matrix")){
 							if(call.input.split.equals("row")){ 
 								s+='''
@@ -3461,6 +3516,39 @@ class FLYGenerator extends AbstractGenerator {
 					ret+='''
 						int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
 						ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+						int __arr_length = «(call.input.f_index as VariableLiteral).variable.name».length;
+						
+						int[] dimPortions = new int[__num_proc_«call.target.name»_«func_ID»]; 
+						int[] displ = new int[__num_proc_«call.target.name»_«func_ID»]; 
+						int offset = 0;
+						
+						for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+							dimPortions[__i] = (__arr_length / __num_proc_«call.target.name»_«func_ID») +
+								((__i < (__arr_length % __num_proc_«call.target.name»_«func_ID»)) ? 1 : 0);
+							displ[__i] = offset;								
+							offset += dimPortions[__i];
+
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
+							String myArrayPortionString = Arrays.toString(Arrays.copyOfRange(«(call.input.f_index as VariableLiteral).variable.name»,displ[__i], displ[__i]+dimPortions[__i] ));
+							__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"myArrayPortion\":"+myArrayPortionString+"}");
+						}
+						for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+							final int __i_f = __i;
+							Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+								@Override
+								public Object call() throws Exception {
+									// TODO Auto-generated method stub
+									//creare la stringa 
+									String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+									__lambda_«cred».invoke(new InvokeRequest()
+										.withInvocationType("Event") 
+										.withFunctionName("«call.target.name»_"+__id_execution)
+										.withPayload(__s_temp));
+									return null;
+								}
+							});
+						__sync_list_«call.target.name»_«func_ID».add(f);
+						}								
 					'''	
 			}else if (call.input.f_index instanceof VariableLiteral &&
 				typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Matrix")){
@@ -3510,7 +3598,7 @@ class FLYGenerator extends AbstractGenerator {
 						ret+='''
 							int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
 							ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-						
+
 						'''	
 					}else{ //square TODO: implement square partition
 						
@@ -3861,7 +3949,7 @@ class FLYGenerator extends AbstractGenerator {
 						}
 						__scanner_«name».close();
 					'''
-				}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Directory")){ //TO-DO: add support directory
+			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).equals("Directory")){ //TO-DO: add support directory
 					return '''
 						for (String __«(indexes.indices.get(0) as VariableDeclaration).name» : «(object as VariableLiteral).variable.name».list()) {
 							String «(indexes.indices.get(0) as VariableDeclaration).name» = «(object as VariableLiteral).variable.name».getAbsolutePath()+"/"+ __«(indexes.indices.get(0) as VariableDeclaration).name»;
@@ -3902,8 +3990,8 @@ class FLYGenerator extends AbstractGenerator {
 							«ENDIF»
 						}
 					'''
-				}
-			 else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
+				
+			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
 				
 			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Matrix")){
 				var name = (object as VariableLiteral).variable.name;

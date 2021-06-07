@@ -298,6 +298,8 @@ class FLYGeneratorPython extends AbstractGenerator {
 						__columns = data[0].keys()
 						«(exp as VariableDeclaration).name» = pd.read_json(json.dumps(data))
 						«(exp as VariableDeclaration).name» = «(exp as VariableDeclaration).name»[__columns]
+					«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Array")»
+						«(exp as VariableDeclaration).name» = data[0]['myArrayPortion']
 					«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Matrix")»
 						__«(exp as VariableDeclaration).name»_matrix = data[0]
 						__«(exp as VariableDeclaration).name»_rows = data[0]['rows']
@@ -1840,7 +1842,18 @@ class FLYGeneratorPython extends AbstractGenerator {
 				echo "delete lambda function: «res.target.name»_${id}"
 				aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 				
+				# delete S3 bucket if existent
+				functionLowerCase=${2,,}
+				if aws s3 ls "s3://${functionLowerCase}${id}bucket" 2>&1 | grep -q 'An error occurred'
+				then
+				    echo "bucket does not exist, no need to delete it"
+				else
+				    echo "bucket exist, so it has to be deleted"
+				    aws s3 rb s3://${functionLowerCase}${id}bucket --force
+				fi
 			«ENDFOR»
+			
+
 	'''
 	
 	def CharSequence AWSDebugUndeploy(Resource resource, String string, boolean local,boolean debug)'''

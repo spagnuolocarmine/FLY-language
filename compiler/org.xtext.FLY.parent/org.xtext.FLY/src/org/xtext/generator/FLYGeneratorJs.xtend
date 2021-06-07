@@ -246,6 +246,8 @@ class FLYGeneratorJs extends AbstractGenerator {
 						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
 							var __data_«(exp as VariableDeclaration).name» = await new __dataframe(event.data);
 							var «(exp as VariableDeclaration).name» = __data_«(exp as VariableDeclaration).name».toArray();
+						«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Array")»
+							var «(exp as VariableDeclaration).name» = event.data[0].myArrayPortion;
 						«ELSE»
 							var «(exp as VariableDeclaration).name» = event.data;
 						«ENDIF»
@@ -1528,6 +1530,15 @@ class FLYGeneratorJs extends AbstractGenerator {
 			echo "delete lambda function: «res.target.name»_${id}"
 			aws lambda --profile ${user} delete-function --function-name «res.target.name»_${id}
 			
+			# delete S3 bucket if existent
+			functionLowerCase=${2,,}
+			if aws s3 ls "s3://${functionLowerCase}${id}bucket" 2>&1 | grep -q 'An error occurred'
+			then
+			    echo "bucket does not exist, no need to delete it"
+			else
+			    echo "bucket exist, so it has to be deleted"
+			    aws s3 rb s3://${functionLowerCase}${id}bucket --force
+			fi
 		«ENDFOR»
 	'''
 	
