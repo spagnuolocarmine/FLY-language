@@ -820,121 +820,134 @@ class FLYGeneratorPython extends AbstractGenerator {
 	def generatePyForExpression(ForExpression exp, String scope, boolean local) {
 		if(exp.index.indices.length == 1){
 			if (exp.object instanceof CastExpression) {
-			if ((exp.object as CastExpression).type.equals("Dat")) {
-				return '''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
-					«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-					«generatePyExpression(e,scope, local)»
-					«ENDFOR»
-					«ELSE»
-					«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-				'''
-			} else if ((exp.object as CastExpression).type.equals("Object")) {
-				val variableName = (exp.index.indices.get(0) as VariableDeclaration).name
-				return '''
-					for «variableName»k, «variableName»v in «((exp.object as CastExpression).target as VariableLiteral).variable.name».items():
-						«(exp.index.indices.get(0) as VariableDeclaration).name» = {'k': «variableName»k, 'v': «variableName»v} 
-						«IF exp.body instanceof BlockExpression»
-						«FOR e: (exp.body as BlockExpression).expressions»
-							«generatePyExpression(e,scope, local)»
-						«ENDFOR»
-						«ELSE»
-							«generatePyExpression(exp.body,scope, local)»	
-						«ENDIF»
-				'''
-			}
-		} else if (exp.object instanceof RangeLiteral) {
-			val lRange = (exp.object as RangeLiteral).value1
-			val rRange = (exp.object as RangeLiteral).value2
-			return '''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in range(«lRange», «rRange»):
-					«IF exp.body instanceof BlockExpression»
-						«generatePyBlockExpression(exp.body as BlockExpression,scope, local)»
-					«ELSE»
-						«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-			'''
-		} else if (exp.object instanceof VariableLiteral) {
-			println("Variable: "+ (exp.object as VariableLiteral).variable.name +" type: "+ typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name)) 
-			if (((exp.object as VariableLiteral).variable.typeobject.equals('var') &&
-				((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
-				val variableName = (exp.index.indices.get(0) as VariableDeclaration).name
-				return '''
-					for «variableName»k, «variableName»v in «(exp.object as VariableLiteral).variable.name».items():
-						«(exp.index.indices.get(0) as VariableDeclaration).name» = {'k': «variableName»k, 'v': «variableName»v}
-						«IF exp.body instanceof BlockExpression»
-							«FOR e: (exp.body as BlockExpression).expressions»
-								«generatePyExpression(e,scope, local)»
-							«ENDFOR»
-						«ELSE»
-								«generatePyExpression(exp.body,scope, local)»	
-						«ENDIF»
-					
-				'''
-			} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') || 
-				typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")
-				) {
-				return '''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
-					«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-					«generatePyExpression(e,scope, local)»
-					«ENDFOR»
-					«ELSE»
-					«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-				'''
-			} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File") ){
-				return'''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
-					«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-					«generatePyExpression(e,scope, local)»
-					«ENDFOR»
-					«ELSE»
-					«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-				'''
-			}else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Directory") ){
-				return '''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in os.listdir(«(exp.object as VariableLiteral).variable.name»):
-					«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-					«generatePyExpression(e,scope, local)»
-					«ENDFOR»
-					«ELSE»
-					«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-				'''
-			} else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("String[]") ){
-				return'''
-				for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
-					«IF exp.body instanceof BlockExpression»
-					«FOR e: (exp.body as BlockExpression).expressions»
-					«generatePyExpression(e,scope, local)»
-					«ENDFOR»
-					«ELSE»
-					«generatePyExpression(exp.body,scope, local)»
-					«ENDIF»
-				'''
-			}
-		}
-		}else if(exp.index.indices.length == 2){
-			if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Matrix")){
-				var row = (exp.index.indices.get(0) as VariableDeclaration).name
-				var col = (exp.index.indices.get(1) as VariableDeclaration).name
-				return '''
-				for «row» in range(__«(exp.object as VariableLiteral).variable.name»_rows):
-					for «col» in range(__«(exp.object as VariableLiteral).variable.name»_cols):
+				if ((exp.object as CastExpression).type.equals("Dat")) {
+					return '''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
 						«IF exp.body instanceof BlockExpression»
 						«FOR e: (exp.body as BlockExpression).expressions»
 						«generatePyExpression(e,scope, local)»
 						«ENDFOR»
 						«ELSE»
 						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+					'''
+				} else if ((exp.object as CastExpression).type.equals("Object")) {
+					val variableName = (exp.index.indices.get(0) as VariableDeclaration).name
+					return '''
+						for «variableName»k, «variableName»v in «((exp.object as CastExpression).target as VariableLiteral).variable.name».items():
+							«(exp.index.indices.get(0) as VariableDeclaration).name» = {'k': «variableName»k, 'v': «variableName»v} 
+							«IF exp.body instanceof BlockExpression»
+							«FOR e: (exp.body as BlockExpression).expressions»
+								«generatePyExpression(e,scope, local)»
+							«ENDFOR»
+							«ELSE»
+								«generatePyExpression(exp.body,scope, local)»	
+							«ENDIF»
+					'''
+				}
+			} else if (exp.object instanceof RangeLiteral) {
+				val lRange = (exp.object as RangeLiteral).value1
+				val rRange = (exp.object as RangeLiteral).value2
+				return '''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in range(«lRange», «rRange»):
+						«IF exp.body instanceof BlockExpression»
+							«generatePyBlockExpression(exp.body as BlockExpression,scope, local)»
+						«ELSE»
+							«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+				'''
+			} else if (exp.object instanceof VariableLiteral) {
+				println("Variable: "+ (exp.object as VariableLiteral).variable.name +" type: "+ typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name)) 
+				if (((exp.object as VariableLiteral).variable.typeobject.equals('var') &&
+					((exp.object as VariableLiteral).variable.right instanceof NameObjectDef) ) ||
+					typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("HashMap")) {
+					val variableName = (exp.index.indices.get(0) as VariableDeclaration).name
+					return '''
+						for «variableName»k, «variableName»v in «(exp.object as VariableLiteral).variable.name».items():
+							«(exp.index.indices.get(0) as VariableDeclaration).name» = {'k': «variableName»k, 'v': «variableName»v}
+							«IF exp.body instanceof BlockExpression»
+								«FOR e: (exp.body as BlockExpression).expressions»
+									«generatePyExpression(e,scope, local)»
+								«ENDFOR»
+							«ELSE»
+									«generatePyExpression(exp.body,scope, local)»	
+							«ENDIF»
+						
+					'''
+				} else if ((exp.object as VariableLiteral).variable.typeobject.equals('dat') || 
+					typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Table")
+					) {
+					return '''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name».itertuples(index=False):
+						«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+						«generatePyExpression(e,scope, local)»
+						«ENDFOR»
+						«ELSE»
+						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+					'''
+				} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("File") ){
+					return'''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
+						«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+						«generatePyExpression(e,scope, local)»
+						«ENDFOR»
+						«ELSE»
+						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+					'''
+				}else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("Directory") ){
+					return '''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in os.listdir(«(exp.object as VariableLiteral).variable.name»):
+						«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+						«generatePyExpression(e,scope, local)»
+						«ENDFOR»
+						«ELSE»
+						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+					'''
+				} else if (typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).equals("String[]") ){
+					return'''
+					for «(exp.index.indices.get(0) as VariableDeclaration).name» in «(exp.object as VariableLiteral).variable.name»:
+						«IF exp.body instanceof BlockExpression»
+						«FOR e: (exp.body as BlockExpression).expressions»
+						«generatePyExpression(e,scope, local)»
+						«ENDFOR»
+						«ELSE»
+						«generatePyExpression(exp.body,scope, local)»
+						«ENDIF»
+					'''
+				}else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Array")){
+						var name = (exp.object as VariableLiteral).variable.name;
+					
+						return '''
+							for «(exp.index.indices.get(0) as VariableDeclaration).name» in range(len(«name»)):
+								«IF exp.body instanceof BlockExpression»
+									«FOR e: (exp.body as BlockExpression).expressions»
+										«generatePyExpression(e,scope, local)»
+									«ENDFOR»
+								«ELSE»
+									«generatePyExpression(exp.body,scope, local)»
+								«ENDIF»
+						'''
+				}	
+			}
+		}else if(exp.index.indices.length == 2){
+			if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Matrix")){
+				var row = (exp.index.indices.get(0) as VariableDeclaration).name
+				var col = (exp.index.indices.get(1) as VariableDeclaration).name
+				return '''
+				for «row» in range(len(«(exp.object as VariableLiteral).variable.name»)):
+					for «col» in range(len(«(exp.object as VariableLiteral).variable.name»[0])):
+						«IF exp.body instanceof BlockExpression»
+							«FOR e: (exp.body as BlockExpression).expressions»
+								«generatePyExpression(e,scope, local)»
+							«ENDFOR»
+						«ELSE»
+							«generatePyExpression(exp.body,scope, local)»
 						«ENDIF»
 				'''
 			}	
@@ -1035,7 +1048,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				var i = generatePyArithmeticExpression(exp.indexes.get(0).value ,scope, local);
 				var j = generatePyArithmeticExpression(exp.indexes.get(1).value ,scope, local);
 	
-				return '''«(exp.name as VariableDeclaration).name»[(«i»*__«(exp.name as VariableDeclaration).name»_cols)+«j»]['value']'''
+				return '''«(exp.name as VariableDeclaration).name»[«i»][«j»]'''
 				
 				
 			} else { // matrix 3d

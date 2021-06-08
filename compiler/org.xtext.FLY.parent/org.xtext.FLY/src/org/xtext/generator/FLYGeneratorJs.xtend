@@ -983,6 +983,38 @@ class FLYGeneratorJs extends AbstractGenerator {
 						'''
 					}else
 						return''''''
+			} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Array")){
+					var name = (exp.object as VariableLiteral).variable.name;
+				
+					return '''
+						for(var «(exp.index.indices.get(0) as VariableDeclaration).name» = 0;«(exp.index.indices.get(0) as VariableDeclaration).name» < «name».length;«(exp.index.indices.get(0) as VariableDeclaration).name»++){
+							«IF exp.body instanceof BlockExpression»
+								«FOR e: (exp.body as BlockExpression).expressions»
+									«generateJsExpression(e,scope)»
+								«ENDFOR»
+							«ELSE»
+								«generateJsExpression(exp.body,scope)»
+							«ENDIF»
+						}
+					'''
+			} else if(typeSystem.get(scope).get((exp.object as VariableLiteral).variable.name).contains("Matrix")){
+					var name = (exp.object as VariableLiteral).variable.name;
+					var index_row = (exp.index.indices.get(0) as VariableDeclaration).name
+					var index_col = (exp.index.indices.get(1) as VariableDeclaration).name
+
+					return  '''
+						for(var «index_row»=0;«index_row»<«name».length;«index_row»++){
+							for(var «index_col»=0;«index_col»<«name»[0].length;«index_col»++){
+								«IF exp.body instanceof BlockExpression»
+									«FOR e: (exp.body as BlockExpression).expressions»
+										«generateJsExpression(e,scope)»
+									«ENDFOR»
+								«ELSE»
+									«generateJsExpression(exp.body,scope)»
+								«ENDIF»
+							}
+						}
+					'''
 			}
 		} 
 	}
@@ -1060,8 +1092,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 			} else if(exp.indexes.length == 2){
 				var i = generateJsArithmeticExpression(exp.indexes.get(0).value,scope)
 				var j = generateJsArithmeticExpression(exp.indexes.get(1).value,scope)
-				var col = typeSystem.get(scope).get((exp.name as VariableDeclaration).name).split("_").get(2)
-				return '''«(exp.name as VariableDeclaration).name»[(«i»*«col»)+«j»]'''
+				return '''«(exp.name as VariableDeclaration).name»[«i»][«j»]'''
 			}else{
 				//return '''«(exp.name as VariableDeclaration).name»[«generateJsArithmeticExpression(exp.indexes.get(0).value)»,«generateJsArithmeticExpression(exp.indexes.get(1).value)»,«generateJsArithmeticExpression(exp.indexes.get(2).value)»]'''
 			}

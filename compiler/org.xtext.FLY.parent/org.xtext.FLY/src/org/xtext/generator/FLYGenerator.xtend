@@ -109,6 +109,9 @@ class FLYGenerator extends AbstractGenerator {
 					}else{
 						jsGen.generateJS(resource,fsa,context,name,element.target,element.environment,typeSystem,id_execution,true,async);
 					}	
+				}else if(type_env.equals("smp")){
+					// generate .java file (local)
+					fsa.generateFile(name + ".java", resource.compileJava)
 				}
 				if ( (type_env != "smp") && (type_env != "vm-cluster")) {
 					// generate .java file (serverless)
@@ -3992,7 +3995,13 @@ class FLYGenerator extends AbstractGenerator {
 					'''
 				
 			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Array")){
+					var name = (object as VariableLiteral).variable.name;
 				
+					return '''
+						for(int «(indexes.indices.get(0) as VariableDeclaration).name» = 0;«(indexes.indices.get(0) as VariableDeclaration).name» < «name».length;«(indexes.indices.get(0) as VariableDeclaration).name»++){
+							«generateExpression(body,scope)»
+						}
+					'''
 			}else if(typeSystem.get(scope).get((object as VariableLiteral).variable.name).contains("Matrix")){
 				var name = (object as VariableLiteral).variable.name;
 				var index_row = (indexes.indices.get(0) as VariableDeclaration).name
