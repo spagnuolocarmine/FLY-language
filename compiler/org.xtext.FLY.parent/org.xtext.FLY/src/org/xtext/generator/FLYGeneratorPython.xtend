@@ -306,13 +306,13 @@ class FLYGeneratorPython extends AbstractGenerator {
 						__«(exp as VariableDeclaration).name»_cols = data[0]['cols']
 						__«(exp as VariableDeclaration).name»_values = data[0]['values']
 						__index = 0
-						«(exp as VariableDeclaration).name» = [None] * (__«(exp as VariableDeclaration).name»_rows * __«(exp as VariableDeclaration).name»_cols)
+						«(exp as VariableDeclaration).name» = [[0 for x in range(__«(exp as VariableDeclaration).name»_cols)] for y in range(__«(exp as VariableDeclaration).name»_rows)]
 						for __i in range(__«(exp as VariableDeclaration).name»_rows):
 							for __j in range(__«(exp as VariableDeclaration).name»_cols):
-								«(exp as VariableDeclaration).name»[__i*__«(exp as VariableDeclaration).name»_cols+__j] = __«(exp as VariableDeclaration).name»_values[__index]['value']
+								«(exp as VariableDeclaration).name»[__i][__j] = __«(exp as VariableDeclaration).name»_values[__index]['value']
 								__index+=1
 					«ELSE»
-				«(exp as VariableDeclaration).name» = data # TODO check
+						«(exp as VariableDeclaration).name» = data # TODO check
 					«ENDIF»
 				«ENDFOR»
 				«FOR exp : exps.expressions»
@@ -338,7 +338,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 				
 			«ELSEIF (env.contains("aws"))»
 				«IF exp.expression instanceof VariableLiteral && typeSystem.get(scope).get((exp.expression as VariableLiteral).variable.name).contains("Matrix") »
-					«IF listParams.contains((exp.expression as VariableLiteral).variable.name)»
+«/* 				«IF listParams.contains((exp.expression as VariableLiteral).variable.name)»
 					__index=0
 					for __i in range(__«(exp.expression as VariableLiteral).variable.name»_rows):
 						for __j in range(__«(exp.expression as VariableLiteral).variable.name»_cols):
@@ -346,7 +346,7 @@ class FLYGeneratorPython extends AbstractGenerator {
 							__index+=1
 					«ELSE»
 					
-					«ENDIF»
+					«ENDIF» */	»
 					«exp.target.name».send_message(
 						MessageBody=json.dumps(__«(exp.expression as VariableLiteral).variable.name»_matrix)
 					)

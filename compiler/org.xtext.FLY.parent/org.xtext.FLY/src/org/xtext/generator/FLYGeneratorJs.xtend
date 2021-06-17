@@ -248,6 +248,20 @@ class FLYGeneratorJs extends AbstractGenerator {
 							var «(exp as VariableDeclaration).name» = __data_«(exp as VariableDeclaration).name».toArray();
 						«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Array")»
 							var «(exp as VariableDeclaration).name» = event.data[0].myArrayPortion;
+						«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Matrix")»
+							__«(exp as VariableDeclaration).name»_matrix = event.data[0]
+							__«(exp as VariableDeclaration).name»_rows = event.data[0].rows;
+							__«(exp as VariableDeclaration).name»_cols = event.data[0].cols;
+							__«(exp as VariableDeclaration).name»_values = event.data[0].values
+							__index = 0
+							«(exp as VariableDeclaration).name» = [];
+							for (var __i = 0;__i < __«(exp as VariableDeclaration).name»_rows; __i++) {
+								«(exp as VariableDeclaration).name»[__i] = [];
+								for (var __j = 0;__j < __«(exp as VariableDeclaration).name»_cols; __j++) {
+									«(exp as VariableDeclaration).name»[__i][__j] = __«(exp as VariableDeclaration).name»_values[__index].value;
+									__index+=1;
+								}
+							}
 						«ELSE»
 							var «(exp as VariableDeclaration).name» = event.data;
 						«ENDIF»
