@@ -252,6 +252,7 @@ class FLYGeneratorJs extends AbstractGenerator {
 							__«(exp as VariableDeclaration).name»_matrix = event.data[0]
 							__«(exp as VariableDeclaration).name»_rows = event.data[0].rows;
 							__«(exp as VariableDeclaration).name»_cols = event.data[0].cols;
+							__«(exp as VariableDeclaration).name»_submatrixIndex = event.data[0].submatrixIndex;
 							__«(exp as VariableDeclaration).name»_values = event.data[0].values
 							__index = 0
 							«(exp as VariableDeclaration).name» = [];
@@ -269,6 +270,29 @@ class FLYGeneratorJs extends AbstractGenerator {
 						«IF typeSystem.get(name).get((exp as VariableDeclaration).name).equals("Table")»
 							var __«(exp as VariableDeclaration).name» = await new __dataframe((req.query.data || (req.body && req.body.data)));
 							var «(exp as VariableDeclaration).name» = __«(exp as VariableDeclaration).name».toArray();
+						«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Array")»
+							var data = await new __dataframe((req.query.data || (req.body && req.body.data)));
+							var arr_data = (data.toArray())[0];
+													
+							var «(exp as VariableDeclaration).name» = arr_data[0];
+						«ELSEIF  typeSystem.get(name).get((exp as VariableDeclaration).name).contains("Matrix")»
+							var data = await new __dataframe((req.query.data || (req.body && req.body.data)));
+							var arr_data = (data.toArray())[0];
+
+							var __«(exp as VariableDeclaration).name»_rows = arr_data[0];
+							var __«(exp as VariableDeclaration).name»_cols = arr_data[1];
+							var __«(exp as VariableDeclaration).name»_submatrixIndex = arr_data[2];
+							var __«(exp as VariableDeclaration).name»_values = await new __dataframe(arr_data[3]);
+							var arr_values = __«(exp as VariableDeclaration).name»_values.toArray();
+							var __index = 0
+							«(exp as VariableDeclaration).name» = [];
+							for (var __i = 0;__i < __«(exp as VariableDeclaration).name»_rows; __i++) {
+								«(exp as VariableDeclaration).name»[__i] = [];
+								for (var __j = 0;__j < __«(exp as VariableDeclaration).name»_cols; __j++) {
+									«(exp as VariableDeclaration).name»[__i][__j] = (arr_values[__index])[2];
+									__index+=1;
+								}
+							}
 						«ELSE»
 							var «(exp as VariableDeclaration).name» = (req.query.data || (req.body && req.body.data));
 						«ENDIF»

@@ -2159,7 +2159,6 @@ class FLYGenerator extends AbstractGenerator {
 
 	// methods for ArithmeticExpression
 	def generateArithmeticExpression(ArithmeticExpression expression, String scope) {
-		// println(expression)
 		if (expression instanceof BinaryOperation) {
 			if (expression.feature.equals("and"))
 				return '''«generateArithmeticExpression(expression.left,scope)» && «generateArithmeticExpression(expression.right,scope)»'''
@@ -3230,28 +3229,50 @@ class FLYGenerator extends AbstractGenerator {
 						typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).contains("Matrix")){
 							if(call.input.split.equals("row")){ 
 								s+='''
-								int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
-								ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-								int __current_row_«(call.input.f_index as VariableLiteral).variable.name» = 0;
-								int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
-								for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
-									int __n_rows =  __rows/__num_proc_«call.target.name»_«func_ID»;
-									if(__rows%__num_proc_«call.target.name»_«func_ID» !=0 && __i< __rows%__num_proc_«call.target.name»_«func_ID» ){
-										__n_rows++;
-									}
-									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
-									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"rows\":"+__n_rows+",\"cols\":"+«(call.input.f_index as VariableLiteral).variable.name»[0].length+",\"values\":[");
-									for(int __j=__current_row_«(call.input.f_index as VariableLiteral).variable.name»; __j<__current_row_«(call.input.f_index as VariableLiteral).variable.name»+__n_rows;__j++){
-										for(int __z = 0; __z<«(call.input.f_index as VariableLiteral).variable.name»[__j].length;__z++){
-											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"x\":"+__j+",\"y\":"+__z+",\"value\":"+«(call.input.f_index as VariableLiteral).variable.name»[__j][__z]+"},");
+									int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
+									ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+									int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
+									
+									int[] dimPortions = new int[__num_proc_«call.target.name»_«func_ID»]; 
+									int[] displ = new int[__num_proc_«call.target.name»_«func_ID»]; 
+									int offset = 0;
+									
+									for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+
+										dimPortions[__i] = (__rows / __num_proc_«call.target.name»_«func_ID») +
+											((__i < (__rows % __num_proc_«call.target.name»_«func_ID»)) ? 1 : 0);
+										displ[__i] = offset;
+										offset += dimPortions[__i];
+										
+										//Get the type of element inside the matrix and generate the submatrix
+										«typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name)
+											.substring(typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).indexOf("_") + 1,
+											typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).lastIndexOf("_")
+											)»[][] subMatrix = new «typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name)
+															.substring(typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).indexOf("_") + 1,
+																typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).lastIndexOf("_")
+															)»[dimPortions[__i]][];
+														
+										for (int i = 0, k = displ[__i]; k < (displ[__i] + dimPortions[__i]); i++, k++) {
+											subMatrix[i] = new «typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name)
+																										.substring(typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).indexOf("_") + 1,
+																											typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).lastIndexOf("_")
+																										)»[«(call.input.f_index as VariableLiteral).variable.name»[i].length];
+										    System.arraycopy(«(call.input.f_index as VariableLiteral).variable.name»[k], 0, subMatrix[i], 0, subMatrix[i].length);
 										}
-										if(__j == __current_row_«(call.input.f_index as VariableLiteral).variable.name» + __n_rows-1) {
-											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).deleteCharAt(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).length()-1);
-											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("]}");
-										}
+										Future<Object> _f = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
+													
+											public Object call() throws Exception {
+												
+												Object __ret = «call.target.name»(subMatrix);
+												«IF call.isIs_then»
+													«call.then.name»();
+												«ENDIF»					
+												return __ret;
+											}
+										});
+										«call.target.name»_«func_ID»_return.add(_f);				
 									}
-									__current_row_«(call.input.f_index as VariableLiteral).variable.name»+=__n_rows;
-								}
 								'''
 						}
 					} else { // f_index is a range
