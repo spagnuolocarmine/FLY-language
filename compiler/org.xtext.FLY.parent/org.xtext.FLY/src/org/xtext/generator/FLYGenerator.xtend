@@ -3274,6 +3274,52 @@ class FLYGenerator extends AbstractGenerator {
 										«call.target.name»_«func_ID»_return.add(_f);				
 									}
 								'''
+						}else if(call.input.split.equals("col")){ //col
+							s+='''
+								int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
+								ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+								int __cols = «(call.input.f_index as VariableLiteral).variable.name»[0].length;
+								int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
+								
+								int[] dimPortions = new int[__num_proc_«call.target.name»_«func_ID»]; 
+								int[] displ = new int[__num_proc_«call.target.name»_«func_ID»]; 
+								int offset = 0;
+								
+								for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+								
+									dimPortions[__i] = (__cols / __num_proc_«call.target.name»_«func_ID») +
+										((__i < (__cols % __num_proc_«call.target.name»_«func_ID»)) ? 1 : 0);
+									displ[__i] = offset;
+									offset += dimPortions[__i];
+									
+									//Get the type of element inside the matrix and generate the submatrix
+									«typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name)
+										.substring(typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).indexOf("_") + 1,
+										typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).lastIndexOf("_")
+										)»[][] subMatrix = new «typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name)
+														.substring(typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).indexOf("_") + 1,
+															typeSystem.get(scope).get((call.input.f_index as VariableLiteral).variable.name).lastIndexOf("_")
+														)»[__rows][dimPortions[__i]];
+									
+									for (int i = 0; i < __rows; i++) {
+										for (int j = 0, k = displ[__i]; j < dimPortions[__i]; j++, k++) {
+											subMatrix[i][j] = «(call.input.f_index as VariableLiteral).variable.name»[i][k];
+										}
+									}
+									Future<Object> _f = __thread_pool_«call.environment.name».submit(new Callable<Object>(){
+												
+										public Object call() throws Exception {
+											
+											Object __ret = «call.target.name»(subMatrix);
+											«IF call.isIs_then»
+												«call.then.name»();
+											«ENDIF»					
+											return __ret;
+										}
+									});
+									«call.target.name»_«func_ID»_return.add(_f);				
+								}											
+							'''	
 						}
 					} else { // f_index is a range
 				if (call.isIsAsync && call.isIs_thenall) {
@@ -3616,14 +3662,52 @@ class FLYGenerator extends AbstractGenerator {
 										}
 									});
 								__sync_list_«call.target.name»_«func_ID».add(f);
-								}
+							}
 						'''
 					}else if(call.input.split.equals("col")){ //col
-						ret+='''
-							int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«cred»").get("nthread");
-							ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
-
-						'''	
+							ret+='''
+								int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
+								ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+								int __current_col_«(call.input.f_index as VariableLiteral).variable.name» = 0;
+								int __cols = «(call.input.f_index as VariableLiteral).variable.name»[0].length;
+								int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
+								
+								for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+									int __n_cols =  __cols/__num_proc_«call.target.name»_«func_ID»;
+									if(__cols%__num_proc_«call.target.name»_«func_ID» !=0 && __i< __cols%__num_proc_«call.target.name»_«func_ID» ){
+										__n_cols++;
+									}
+									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
+									__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"rows\":"+__rows+",\"cols\":"+__n_cols+",\"submatrixIndex\":"+__i+",\"values\":[");
+									for(int __j = 0; __j<__rows;__j++){
+										for(int __z=__current_col_«(call.input.f_index as VariableLiteral).variable.name»; __z<__current_col_«(call.input.f_index as VariableLiteral).variable.name»+__n_cols;__z++){
+											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"x\":"+__j+",\"y\":"+__z+",\"value\":"+«(call.input.f_index as VariableLiteral).variable.name»[__j][__z]+"},");
+										}
+										if(__j == __rows-1) {
+											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).deleteCharAt(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).length()-1);
+											__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("]}");
+										}
+									}
+									__current_col_«(call.input.f_index as VariableLiteral).variable.name»+=__n_cols;
+								}
+								for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+										final int __i_f = __i;
+										Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+											@Override
+											public Object call() throws Exception {
+												// TODO Auto-generated method stub
+												//creare la stringa 
+												String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+												__lambda_«cred».invoke(new InvokeRequest()
+													.withInvocationType("Event") 
+													.withFunctionName("«call.target.name»_"+__id_execution)
+													.withPayload(__s_temp));
+												return null;
+											}
+										});
+									__sync_list_«call.target.name»_«func_ID».add(f);
+								}										
+							'''	
 					}else{ //square TODO: implement square partition
 						
 					}
@@ -3876,7 +3960,50 @@ class FLYGenerator extends AbstractGenerator {
 								__sync_list_«call.target.name»_«func_ID».add(f);
 								}
 						'''
-						}
+					}else if(call.input.split.equals("col")){ //col
+						ret+='''
+							int __num_proc_«call.target.name»_«func_ID»= (int) __fly_environment.get("«call.environment.name»").get("nthread");
+							ArrayList<StringBuilder> __temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID» = new ArrayList<StringBuilder>();
+							int __current_col_«(call.input.f_index as VariableLiteral).variable.name» = 0;
+							int __cols = «(call.input.f_index as VariableLiteral).variable.name»[0].length;
+							int __rows = «(call.input.f_index as VariableLiteral).variable.name».length;
+							
+							for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+								int __n_cols =  __cols/__num_proc_«call.target.name»_«func_ID»;
+								if(__cols%__num_proc_«call.target.name»_«func_ID» !=0 && __i< __cols%__num_proc_«call.target.name»_«func_ID» ){
+									__n_cols++;
+								}
+								__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».add(__i,new StringBuilder());
+								__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"rows\":"+__rows+",\"cols\":"+__n_cols+",\"submatrixIndex\":"+__i+",\"values\":[");
+								for(int __j = 0; __j<__rows;__j++){
+									for(int __z=__current_col_«(call.input.f_index as VariableLiteral).variable.name»; __z<__current_col_«(call.input.f_index as VariableLiteral).variable.name»+__n_cols;__z++){
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("{\"x\":"+__j+",\"y\":"+__z+",\"value\":"+«(call.input.f_index as VariableLiteral).variable.name»[__j][__z]+"},");
+									}
+									if(__j == __rows-1) {
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).deleteCharAt(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).length()-1);
+										__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i).append("]}");
+									}
+								}
+								__current_col_«(call.input.f_index as VariableLiteral).variable.name»+=__n_cols;
+							}
+							for(int __i=0;__i<__num_proc_«call.target.name»_«func_ID»;__i++){
+									final int __i_f = __i;
+									Future<Object> f = __thread_pool_«call.environment.name».submit(new Callable<Object>() {
+										@Override
+										public Object call() throws Exception {
+											// TODO Auto-generated method stub
+											//creare la stringa 
+											String __s_temp= __generateString(__temp_«(call.input.f_index as VariableLiteral).variable.name»_«func_ID».get(__i_f).toString(),«func_ID»);
+											«cred».invokeFunction("«call.target.name»",__s_temp);
+											return null;
+										}
+									});
+								__sync_list_«call.target.name»_«func_ID».add(f);
+								}										
+						'''	
+					}else{ //square TODO: implement square partition
+						
+					}
 			}
 		}
 		
